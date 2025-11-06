@@ -1,45 +1,40 @@
-from operator import contains
 from typing import List
-
-from fastapi.openapi.models import Contact
 from app.models import Asset
-import os, requests
-from app.config import ADDRESS_EVM, RPC_URL_MAIN, RPC_URL_BASE, CHAIN_RPC, RPC_URL_BNB, RPC_URL_ARB, RPC_URL_LINEA
-
-print(bool(RPC_URL_MAIN), bool(RPC_URL_BASE), bool(RPC_URL_BNB), bool(RPC_URL_ARB), bool(RPC_URL_LINEA))
-print({k: bool(v) for k,v in CHAIN_RPC.items()})
+import requests
+from app.config import ADDRESS_EVM, RPC_URL_MAIN, CHAIN_RPC
 
 
-def get_eth_balance_via_rpc(address: str) -> tuple[int, float]:
-    # Получаю баланс eth через rpc-запрос
-    url_main = RPC_URL_MAIN
-    if not url_main:
-        print("RPC_URL пуст")
-        return (0, 0.0)    
+#. DEBUG
+# def get_eth_balance_via_rpc(address: str) -> tuple[int, float]:
+#     # Получаю баланс eth через rpc-запрос
+#     url_main = RPC_URL_MAIN
+#     if not url_main:
+#         print("RPC_URL пуст")
+#         return (0, 0.0)    
 
-    if not address:
-        print("Пустой address - не передан адрес кошелька")
-        return (0, 0.0)
+#     if not address:
+#         print("Пустой address - не передан адрес кошелька")
+#         return (0, 0.0)
 
-    payload = {
-        "jsonrpc":"2.0",
-        "method":"eth_getBalance",
-        "params":[address,"latest"],
-        "id":1
-        }
+#     payload = {
+#         "jsonrpc":"2.0",
+#         "method":"eth_getBalance",
+#         "params":[address,"latest"],
+#         "id":1
+#         }
 
-    try:
-        r = requests.post(url_main, json=payload, timeout=15)
-        r.raise_for_status() #if status 4xx/5xx
-        data = r.json()
-        if "error" in data or "result" not in data:
-            print(f"Ошибка RPC: {data}")
-            return (0, 0.0)
-        wei = int(data["result"], 16)
-        return wei, wei / 10**18
-    except Exception as e:
-        print(f"Ошибка при запросе RPC: {e}")
-        return (0, 0.0)
+#     try:
+#         r = requests.post(url_main, json=payload, timeout=15)
+#         r.raise_for_status() #if status 4xx/5xx
+#         data = r.json()
+#         if "error" in data or "result" not in data:
+#             print(f"Ошибка RPC: {data}")
+#             return (0, 0.0)
+#         wei = int(data["result"], 16)
+#         return wei, wei / 10**18
+#     except Exception as e:
+#         print(f"Ошибка при запросе RPC: {e}")
+#         return (0, 0.0)
 
 
 def get_native_eth_balance(chain: str, address: str) -> tuple[int, float]:
@@ -81,11 +76,10 @@ def get_native_price_usd(chain: str) -> float:
     
 from app.config import NATIVE_SYMBOL
 def _assets_native_usd(address: str) -> List[Asset]:
-    from app.config import CHAIN_RPC
     assets, total = [], 0.0
     for chain in CHAIN_RPC:
-        _, amount_native = get_native_eth_balance
-        price_usd = get_native_price_usd(chain)
+        _, amount_native = get_native_eth_balance(chain, address)
+        price_usd = get_native_price_usd_cached(chain)
         usd = amount_native * price_usd
         total += usd
         symbol = NATIVE_SYMBOL.get(chain, "NATIVE")
@@ -98,23 +92,8 @@ async def get_evm_balances(address: str) -> List[Asset]:
         from app.config import ADDRESS_EVM
         address = ADDRESS_EVM
 
-    print(_assets_native_usd(address))
-    print(address)
     return _assets_native_usd(address)
 
-
-
-# TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
-
-# def pad_addr_32(addr: str) -> str:
-#     return "0x" + "0"*24 + addr.lower()[2:]
-
-# def hex_to_int(h: str) -> int:
-#     return int(h, 16) if h else 0
-
-# def int_to_hex(n:int) -> str:
-#     return hex(n)    
-     
 
 
 from app.config import COINGECKO_PLATFORM, TOKENS_BY_CHAIN
@@ -167,7 +146,7 @@ def get_native_price_usd_cached(chain: str) -> float:
     cg_id = NATIVE_CG_ID.get(chain, "")
     if not cg_id:
         return 0.0
-    if cg_id == "ethereal":
+    if cg_id == "ethereum":
         return get_eth_usd_price_cached()
     if cg_id in NATIVE_PRICE_CACHE:
         return NATIVE_PRICE_CACHE[cg_id]
@@ -217,9 +196,6 @@ def summarize_chain(chain: str, address: str) -> dict:
 
 
 
-
-
-
 def erc20_balance_of(rpc_url: str, token: str, addr: str) -> int:
     data = "0x70a08231" + ("0"*24 + addr.lower()[2:])
     payload = {"jsonrpc":"2.0","method":"eth_call","params":[{"to":token,"data":data},"latest"],"id":1}
@@ -237,29 +213,7 @@ def erc20_decimals(rpc_url: str, token: str) -> int:
     return int(res, 16) if res != "0x" else 18
 
 
-
-# for ch in CHAIN_RPC: print(ch, get_native_price_usd(ch))
-# for ch in CHAIN_RPC:
-#     wei, amt = get_native_eth_balance(ch, ADDRESS_EVM)
-#     print(ch, "amt", amt)
-
-
-
-
 if __name__ == "__main__":
-    # known = [
-    #     # USDT, USDC, WETH — примеры; замени/добавь свои
-    #     "0xdAC17F958D2ee523a2206206994597C13D831ec7",  # USDT
-    #     "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",  # USDC
-    #     "0xC02aaA39b223FE8D0A0E5C4F27eAD9083C756Cc2",  # WETH
-    # ]
-
-    # for t in known:
-    #     bal = erc20_balance_of(RPC_URL_MAIN, t, ADDRESS_EVM)
-    #     if bal > 0:
-    #         dec = erc20_decimals(RPC_URL_MAIN, t)
-    #         print(t, bal / (10**dec))    
-
 
     grand_total = 0.0
     for ch in CHAIN_RPC:
@@ -278,57 +232,6 @@ if __name__ == "__main__":
 
     print("ALL_CHAINS_TOTAL_USD", grand_total)    
 
-
-
-    # for ch in CHAIN_RPC: print(ch, get_native_price_usd(ch))    
-
-
-    # for chain in CHAIN_RPC:
-    #     if chain not in TOKENS_BY_CHAIN:
-    #         print(chain, "skip(no tokens)"); continue
-    #     rows = list_known_tokens_with_usd(chain, ADDRESS_EVM)
-    #     total = sum(usd for _, _, usd in rows)
-    #     print(chain, rows, "total_usd", total)
-
-
-    # for chain in CHAIN_RPC:
-    #     wei, amt = get_native_eth_balance(chain, ADDRESS_EVM)
-    #     print(chain, "amt", amt, "price", get_native_price_usd(chain), "usd", amt*get_native_price_usd(chain))
-
-    
-    # logs_main = get_logs_paged(CHAIN_RPC["mainnet"], ADDRESS_EVM, blocks_back=500_000, step=50_000)
-    # logs_base = get_logs_paged(CHAIN_RPC["base"], ADDRESS_EVM, blocks_back=200_000, step=10_000)
-    # logs_bnb = get_logs_paged(CHAIN_RPC["bnb"], ADDRESS_EVM, blocks_back=200_000, step=10_000)
-    # logs_linea = get_logs_paged(CHAIN_RPC["linea"], ADDRESS_EVM, blocks_back=200_000, step=10_000)
-    # logs_arbitrum = get_logs_paged(CHAIN_RPC["arbitrum"], ADDRESS_EVM, blocks_back=200_000, step=10_000)
-
-    # print(
-    #     "mainnet", len(logs_main), 
-    #     "base", len(logs_base),
-    #     "bnb", len(logs_bnb),
-    #     "linea", len(logs_linea),
-    #     "arbitrum", len(logs_arbitrum)
-    #     )
-
-    
-
-    # for chain, url in CHAIN_RPC.items():
-    #     if not url: 
-    #         print(chain, "no rpc"); continue
-    #     logs = get_logs_for_address(url, ADDRESS_EVM, 1_800_000)
-    #     print(chain, len(logs))
-
-
-
-
-    # logs = get_logs_for_address(CHAIN_RPC["mainnet"], ADDRESS_EVM, 190_600_000)
-    # print(len(logs),logs[0] if logs else "no logs")
-
-    # print(get_eth_usd_price())
-
-    # addr = ADDRESS_EVM
-    # wei, eth = get_eth_balance_via_rpc(addr)
-    # print(f"Баланс {addr[:10]}... = {eth} ETH")
 
 
 
