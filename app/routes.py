@@ -1,7 +1,7 @@
 from fastapi import HTTPException
 from fastapi.routing import APIRouter
-from app.sources.evm import get_evm_balances
 from app.config import ADDRESS_EVM
+from app.services.portfolio import summarize_all
 
 
 router = APIRouter()
@@ -12,8 +12,8 @@ async def health():
 
 @router.get("/assets")
 async def get_assets(address: str = ""):
-    resolved_address = address or ADDRESS_EVM
-    if not resolved_address:
+    resolved = address or ADDRESS_EVM
+    if not resolved:
         raise HTTPException(status_code=400, detail="ADDRESS не задан и параметр address не передан")
-    balances = await get_evm_balances(resolved_address)
-    return [b.model_dump() for b in balances]
+    summary = summarize_all(resolved)
+    return summary.model_dump()
