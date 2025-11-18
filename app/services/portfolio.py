@@ -9,7 +9,7 @@ def summarize_chain(chain: str, address: str) -> ChainSummary:
     native_wei = get_balance(rpc_url, address) if rpc_url and address else 0
     native_amount = native_wei / 10**18
 
-    native_usd_price = get_native_price_usd_cached(chain)
+    # native_usd_price = get_native_price_usd_cached(chain)
     tokens_cfg = TOKENS_BY_CHAIN.get(chain, {})
     usdt_c = tokens_cfg.get("USDT"); usdc_c = tokens_cfg.get("USDC")
 
