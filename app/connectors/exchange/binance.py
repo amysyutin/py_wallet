@@ -1,5 +1,3 @@
-from turtle import position
-from fastapi import Request
 from pydantic_core.core_schema import bytes_schema
 import requests, time, hmac, hashlib
 from urllib.parse import urlencode
@@ -93,8 +91,6 @@ def get_account_balances_earn() -> list[dict]:
         raise TimeoutError("Binance earn account request timed out")
 
 
-
-
 def get_account_balances_earn_locked() -> list[dict]:
     try:
         r = signed_get("/sapi/v1/simple-earn/locked/position",{
@@ -150,6 +146,5 @@ def filter_nonzero(bals: list[dict]) -> list[dict]:
         if amt > 0:
             out.append({"asset": b["asset"], "amount": amt})
     return out
-
 
 

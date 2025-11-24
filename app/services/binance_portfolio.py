@@ -1,4 +1,3 @@
-from ast import alias
 from app.connectors.exchange.binance import (
     get_account_balances_earn_locked,
     get_account_balances_spot,
@@ -9,8 +8,8 @@ from app.connectors.exchange.binance_public import load_all_price_cached, to_usd
 
 
 def summarize_binance_usdt() -> dict:
-    sync_server_time()
     try:
+        sync_server_time()
         #сюда как то добавить get_account_balances_earn 
         spot_bals = filter_nonzero(get_account_balances_spot())
 
@@ -31,22 +30,24 @@ def summarize_binance_usdt() -> dict:
     important_assets = {"BTC", "ETH", "BNB", "USDT", "USDC"}
 
 
+    alias_map = {
+            "LDUSDT": "USDT",
+            "LDETH": "ETH",
+            "LDBNB": "BNB",
+            "LDBTC": "BTC",
+            "LDUSDC": "USDC",
+            }
+
+
     def process_group(bals: list[dict], source: str):
         nonlocal rows, total_usdt
         for b in bals: 
             asset = b["asset"].upper()
             amount = float(b["amount"])
 
-            alias = {
-                "LDUSDT": "USDT",
-                "LDETH": "ETH",
-                "LDBNB": "BNB",
-                "LDBTC": "BTC",
-                "LDUSDC": "USDC",
-            
-            }
+
             original_asset = asset
-            asset = alias.get(asset, asset)
+            asset = alias_map.get(asset, asset)
 
             if asset not in important_assets:
                 continue
@@ -66,6 +67,7 @@ def summarize_binance_usdt() -> dict:
                     "asset": asset,
                     "amount": amount,
                     "amount_str": amount_str,
+                    "original_asset": original_asset,
                     "usd": usd,
                     "usdt_str": usdt_str,
                     "source": source, 
