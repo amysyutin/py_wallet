@@ -10,7 +10,7 @@ def test_root():
     assert response.json() == {"status": "ok"}
 
 def test_assets():
-    response = client.get("/assets")
+    response = client.get("/binance/balance")
     assert response.status_code == 200
 
 def test_health():
@@ -26,7 +26,7 @@ def test_assets_endpoint(mock_service):
     }
     mock_service.return_value = mock_data
 
-    response = client.get("/assets")
+    response = client.get("/binance/balance")
 
     assert response.status_code == 200
     data = response.json()

@@ -19,13 +19,20 @@ def test_simmarize_binance_usdt_success(
 ):
     # 1. Настраиваем моки (что они должны вернуть)
     mock_spot.return_value = [
-        {"asset": "BTC", "free": "0.1", "loсked": "0.0"}, # Спот
-        {"asset": "USDT", "free": "100", "loсked": "0.0"}
+        {"asset": "BTC", "free": "0.1", "locked": "0.0"}, # Спот
+        {"asset": "USDT", "free": "100", "locked": "0.0"}
     ]
     mock_earn.return_value = [
         {"asset": "ETH", "amount": "1.0"}
     ]
     mock_earn_locked.return_value = []
+
+    mock_prices = {
+    'BNBUSDT': 400.0, 
+    'BTCUSDT': 50000.0, 
+    'ETHUSDT': 3000.0, 
+    'USDT': 1.0
+    }
 
 
     # Функция to_usdt внутри сервиса использует цены. 
