@@ -2,22 +2,15 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
-
-
 BINANCE_BASE_URL = "https://api.binance.com"
 
 BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "")
 if BINANCE_API_KEY is None:
     raise ValueError("Переменная BINANCE_API_KEY не найдена в .env или окружении")
-    
+
 BINANCE_API_SECRET = os.getenv("BINANCE_SECRET", "")
 if BINANCE_API_SECRET is None:
     raise ValueError("Переменная BINANCE_API_SECRET не найдена в .env или окружении")
-
-
-
-
-
 
 ADDRESS_EVM = os.getenv("ADDRESS", "")
 if ADDRESS_EVM is None:

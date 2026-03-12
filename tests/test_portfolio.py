@@ -1,6 +1,5 @@
 
-from unittest import result
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from app.services.binance_portfolio import summarize_binance_usdt
 
 @patch("app.services.binance_portfolio.load_all_price_cached")

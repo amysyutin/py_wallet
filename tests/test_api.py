@@ -10,7 +10,7 @@ def test_root():
     assert response.json() == {"status": "ok"}
 
 def test_assets():
-    response = client.get("/binance/balance")
+    response = client.get("/assets")
     assert response.status_code == 200
 
 def test_health():
