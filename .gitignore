@@ -1,4 +1,6 @@
 .env
 __pycache__/
 venv/
-README.md
+test/
+.pytest_cache/
+.venv/
