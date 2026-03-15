@@ -5,7 +5,7 @@ services:
     build: .
     image: cripto_analayzer:latest
     env_file:
-      - .env
+      - /home/cript/cripto_secrets/.env
     ports:
       - "127.0.0.1:8000:8000"
     restart: unless-stopped
