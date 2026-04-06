@@ -1,6 +1,6 @@
 .env
 __pycache__/
 venv/
-test/
 .pytest_cache/
 .venv/
+CI_GUIDE.md

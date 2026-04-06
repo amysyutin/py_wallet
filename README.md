@@ -1,148 +1,124 @@
-# Крипто-анализатор (Crypto Analyzer)
+# Crypto Analyzer
 
-FastAPI приложение для отслеживания криптовалютных активов из разных источников.
+FastAPI-сервис для агрегации и мониторинга криптовалютного портфеля. Собирает данные с EVM-сетей (Ethereum, Base, BNB Chain, Arbitrum, Linea) и биржи Binance (Spot, Earn Flexible, Earn Locked), рассчитывает USD-стоимость активов.
 
-## 📁 Структура проекта
+## Структура проекта
 
 ```
 cripto_analyzer/
 ├── app/
-│   ├── __init__.py        # Делает app Python-пакетом
-│   ├── main.py            # Точка входа, создаёт FastAPI app
-│   ├── routes.py          # Эндпоинты API
-│   ├── models.py          # Pydantic модели данных
-│   └── db.py              # (заглушка) Для работы с БД
+│   ├── __init__.py
+│   ├── main.py                       # Точка входа FastAPI
+│   ├── config.py                     # Переменные окружения, адреса токенов, RPC
+│   ├── models.py                     # Pydantic-модели (Asset, PortfolioSummary и др.)
+│   ├── routes.py                     # Эндпоинты API
+│   ├── connectors/
+│   │   ├── rpc.py                    # JSON-RPC вызовы (eth_getBalance, eth_call)
+│   │   ├── erc20.py                  # balanceOf / decimals через eth_call
+│   │   ├── exchange/
+│   │   │   ├── binance.py            # Подписанные запросы к Binance API
+│   │   │   └── binance_public.py     # Публичные тикеры (цены) Binance
+│   │   └── price/
+│   │       └── coingecko.py          # Курсы нативных токенов через CoinGecko
+│   ├── services/
+│   │   ├── portfolio.py              # Агрегация портфеля по EVM-сетям
+│   │   └── binance_portfolio.py      # Агрегация портфеля Binance
+│   └── sources/
+│       └── evm.py                    # CLI-скрипт для отладки EVM-портфеля
 ├── tests/
-│   └── test_api.py        # Pytest тесты
-├── .venv/                 # Виртуальное окружение
-├── requirements.txt       # Зависимости проекта
-└── README.md             # Этот файл
-
+│   ├── conftest.py                   # Pytest-фикстуры
+│   ├── test_api.py                   # Тесты эндпоинтов
+│   └── test_portfolio.py             # Тесты бизнес-логики Binance
+├── Dockerfile
+├── docker-compose.yml
+├── .dockerignore
+├── .env.example
+├── .gitignore
+├── pytest.ini
+└── requirements.txt
 ```
 
-## 🎯 Что делает проект
+## API-эндпоинты
 
-**Текущий функционал:**
-1. **Эндпоинт `/`** - проверка работоспособности сервера
-2. **Эндпоинт `/assets`** - возвращает список активов (пока mock-данные)
+| Метод | Путь | Описание |
+|-------|------|----------|
+| GET | `/` | Проверка работоспособности (`{"status": "ok"}`) |
+| GET | `/health` | Health-check (`{"status": "healthy"}`) |
+| GET | `/assets?address=0x...` | Портфель по EVM-сетям — нативные токены, USDT, USDC |
+| GET | `/binance/balance` | Портфель Binance — Spot + Earn Flexible + Earn Locked |
 
-**Планируется:**
-- Подключение реальных источников (биржи, кошельки)
-- Получение актуальных цен
-- История изменения цен
-- Аналитика
+`/assets` — если параметр `address` не передан, используется `ADDRESS` из `.env`.
 
-## 🛠 Как работает код
+## Переменные окружения
 
-### 1. main.py - точка входа
-```python
-from fastapi import FastAPI
-app = FastAPI()  # Создаём FastAPI приложение
-```
-- Создаёт экземпляр FastAPI
-- Регистрирует декораторы `@app.get(...)` из routes.py
-- Экспортирует `app` для запуска сервера
+Скопируйте `.env.example` в `.env` и заполните:
 
-### 2. routes.py - эндпоинты
-```python
-from app.main import app  # Импортируем объект app
-
-@app.get("/assets")       # Регистрируем GET /assets
-async def get_assets():   # async = асинхронная функция
-    return [{"name": "BTC", "price": 5000, "source": "mock"}]
-```
-- Импортирует `app` из main.py
-- Использует декоратор для регистрации эндпоинта
-- Возвращает JSON-данные
-
-### 3. models.py - структура данных
-```python
-class Asset(BaseModel):  # Pydantic модель
-    name: str            # Имя актива
-    price: float         # Цена
-    source: str          # Источник данных
-```
-- Определяет структуру данных для валидации
-- Используется для документации API
-
-### 4. tests/test_api.py - тесты
-```python
-client = TestClient(app)  # Создаём тестовый клиент
-
-def test_assets():
-    response = client.get("/assets")  # Эмулируем GET запрос
-    assert response.status_code == 200  # Проверяем статус
-```
-- `TestClient` - не запускает сервер, просто выполняет код
-- `client.get()` - эмулирует HTTP запрос
-- `assert` - проверяет результат
-
-## 🚀 Управление проектом
-
-### Установка зависимостей
 ```bash
-# Переходим в директорию проекта
-cd cripto_analyzer
-
-# Устанавливаем зависимости в .venv
-.venv/bin/pip install -r requirements.txt
+cp .env.example .env
 ```
 
-### Запуск тестов
+| Переменная | Назначение |
+|------------|-----------|
+| `BINANCE_API_KEY` | API-ключ Binance |
+| `BINANCE_SECRET` | Секрет Binance |
+| `ADDRESS` | EVM-адрес кошелька по умолчанию |
+| `RPC_URL_MAINET` | RPC-URL Ethereum Mainnet |
+| `RPC_URL_BASE` | RPC-URL Base |
+| `RPC_URL_BNB` | RPC-URL BNB Chain |
+| `RPC_URL_ARB` | RPC-URL Arbitrum |
+| `RPC_URL_LINEA` | RPC-URL Linea |
+
+## Запуск
+
+### Docker (рекомендуется)
+
 ```bash
-cd cripto_analyzer
+# Сборка и запуск
+docker compose up --build -d
 
-# Вариант 1: С PYTHONPATH
-PYTHONPATH=. .venv/bin/pytest tests/test_api.py -v
+# Просмотр логов
+docker compose logs -f
 
-# Вариант 2: С активированным venv
+# Остановка
+docker compose down
+```
+
+Сервис будет доступен на `http://127.0.0.1:8000`.
+
+> **Примечание:** `docker-compose.yml` читает `.env` из `/home/cript/cripto_secrets/.env`. Для локальной разработки измените путь `env_file` или используйте `.env` в корне проекта.
+
+### Локально (без Docker)
+
+```bash
+python -m venv .venv
 source .venv/bin/activate
-pytest tests/test_api.py -v
+pip install -r requirements.txt
+
+uvicorn app.main:app --reload --port 8000
 ```
 
-### Запуск сервера (разработка)
+## Тестирование
+
 ```bash
-cd cripto_analyzer
+# С активированным venv
+pytest -v
 
-# Вариант 1: Прямой запуск
-.venv/bin/uvicorn app.main:app --reload
-
-# Вариант 2: С активированным venv
-source .venv/bin/activate
-uvicorn app.main:app --reload
+# Или напрямую
+.venv/bin/pytest -v
 ```
 
-### Проверка эндпоинтов
+Тесты используют `unittest.mock.patch` для изоляции от внешних API (Binance, RPC, CoinGecko).
+
+## Документация API
+
 После запуска сервера:
-- http://127.0.0.1:8001/ - главная страница
-- http://127.0.0.1:8001/assets - список активов
-- http://127.0.0.1:8001/docs - Swagger документация (автоматическая!)
-- http://127.0.0.1:8001/redoc - ReDoc документация
 
-### Деактивация venv
-```bash
-deactivate
-```
+- Swagger UI: http://127.0.0.1:8000/docs
+- ReDoc: http://127.0.0.1:8000/redoc
 
-## 📚 Объяснение ключевых терминов
+## Docker-окружение
 
-- **FastAPI** - веб-фреймворк для создания API
-- **async/await** - асинхронное программирование (быстрые I/O операции)
-- **TestClient** - инструмент для тестирования без запуска сервера
-- **Pydantic** - валидация данных (проверяет типы автоматически)
-- **@app.get()** - декоратор для регистрации GET эндпоинта
-- **venv** - изолированное Python окружение для проекта
-
-## 🧪 Как работают тесты
-
-1. `TestClient` импортирует объект `app`
-2. `client.get("/")` эмулирует HTTP запрос
-3. Возвращается объект `response` с данными
-4. `assert` проверяет что всё правильно
-
-## 🎓 Задания для изучения
-
-- Добавить новый эндпоинт `/health` в routes.py
-- Написать тест для этого эндпоинта
-- Добавить обработку ошибок (try/except)
-- Использовать модель Asset для возврата данных
+- **Базовый образ:** `python:3.12-slim`
+- **Пользователь:** непривилегированный `appuser`
+- **Порт:** `8000`
+- **Политика перезапуска:** `unless-stopped`
