@@ -56,10 +56,10 @@ jobs:
           EOF
 
       - name: Validate compose file
-        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml config
+        run: docker compose -f docker-compose.ci.yml config
 
       - name: Start stack
-        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build
+        run: docker compose -f docker-compose.ci.yml up -d --build
 
       - name: Wait for app health
         run: |
@@ -85,8 +85,8 @@ jobs:
 
       - name: Show logs on failure
         if: failure()
-        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --no-color
+        run: docker compose -f docker-compose.ci.yml logs --no-color
 
       - name: Stop stack
         if: always()
-        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
+        run: docker compose -f docker-compose.ci.yml down -v

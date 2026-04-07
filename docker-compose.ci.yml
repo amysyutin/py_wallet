@@ -1,5 +1,7 @@
 services:
   app:
+    build: .
+    image: cripto_analyzer:ci
     env_file:
       - .env
     ports:
