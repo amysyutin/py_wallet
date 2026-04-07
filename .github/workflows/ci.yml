@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest -v --tb=short
+
+  compose-smoke:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show Docker versions
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Create .env
+        run: |
+          cat > .env <<'EOF'
+          APP_ENV=ci
+          BINANCE_API_KEY=${{ secrets.BINANCE_API_KEY }}
+          BINANCE_SECRET=${{ secrets.BINANCE_SECRET }}
+          EVM1_ADDRESS=${{ secrets.EVM1_ADDRESS }}
+          BYBIT_API_KEY=${{ secrets.BYBIT_API_KEY }}
+          BYBIT_SECRET=${{ secrets.BYBIT_SECRET }}
+          OKX_API_KEY=${{ secrets.OKX_API_KEY }}
+          OKX_SECRET=${{ secrets.OKX_SECRET }}
+          RPC_URL_MAINET=https://ethereum-rpc.publicnode.com
+          RPC_URL_BASE=https://base.drpc.org
+          RPC_URL_BNB=https://bsc.drpc.org
+          RPC_URL_ARB=https://arbitrum-one-rpc.publicnode.com
+          RPC_URL_LINEA=https://linea.drpc.org
+          EOF
+
+      - name: Validate compose file
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml config
+
+      - name: Start stack
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build
+
+      - name: Wait for app health
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/health; then
+              echo ""
+              echo "Application is healthy"
+              exit 0
+            fi
+            echo "Waiting for application... attempt $i"
+            sleep 2
+          done
+          echo "Application did not become healthy in time"
+          exit 1
+
+      - name: Smoke test endpoints
+        run: |
+          echo "--- GET / ---"
+          curl -fsS http://127.0.0.1:8000/
+          echo ""
+          echo "--- GET /health ---"
+          curl -fsS http://127.0.0.1:8000/health
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --no-color
+
+      - name: Stop stack
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
