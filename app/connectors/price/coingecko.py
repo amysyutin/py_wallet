@@ -1,5 +1,3 @@
-
-
 import requests
 from app.config import NATIVE_CG_ID
 
@@ -7,15 +5,17 @@ ETH_USD_CACHE: float | None = None
 NATIVE_PRICE_CACHE: dict[str, float] = {}
 
 
-
 def get_eth_usd_price_cached() -> float:
     global ETH_USD_CACHE
     if ETH_USD_CACHE is None:
-        r = requests.get("https://api.coingecko.com/api/v3/simple/price",
-        params={"ids":"ethereum","vs_currencies":"usd"}, timeout=15)
+        r = requests.get(
+            "https://api.coingecko.com/api/v3/simple/price",
+            params={"ids": "ethereum", "vs_currencies": "usd"},
+            timeout=15,
+        )
         r.raise_for_status()
-        ETH_USD_CACHE = float(r.json().get("ethereum",{}).get("usd", 0.0))
-    return ETH_USD_CACHE    
+        ETH_USD_CACHE = float(r.json().get("ethereum", {}).get("usd", 0.0))
+    return ETH_USD_CACHE
 
 
 def get_native_price_usd_cached(chain: str) -> float:
@@ -27,14 +27,16 @@ def get_native_price_usd_cached(chain: str) -> float:
     if cg_id in NATIVE_PRICE_CACHE:
         return NATIVE_PRICE_CACHE[cg_id]
     try:
-        r = requests.get("https://api.coingecko.com/api/v3/simple/price",
-                        params={"ids": cg_id, "vs_currencies": "usd"}, timeout=15)  
+        r = requests.get(
+            "https://api.coingecko.com/api/v3/simple/price",
+            params={"ids": cg_id, "vs_currencies": "usd"},
+            timeout=15,
+        )
         r.raise_for_status()
         NATIVE_PRICE_CACHE[cg_id] = float(r.json().get(cg_id, {}).get("usd", 0.0))
     except Exception:
         NATIVE_PRICE_CACHE[cg_id] = 0.0
-    return NATIVE_PRICE_CACHE[cg_id]         
-
+    return NATIVE_PRICE_CACHE[cg_id]
 
 
 # def get_token_prices_usd(chain: str, contracts: list[str]) -> dict[str, float]:
@@ -52,7 +54,7 @@ def get_native_price_usd_cached(chain: str) -> float:
 # # price eth to usd
 # def get_eth_usd_price() -> float:
 #     r = requests.get("https://api.coingecko.com/api/v3/simple/price",
-#                     params={"ids":"ethereum","vs_currencies":"usd"}, timeout=15) 
+#                     params={"ids":"ethereum","vs_currencies":"usd"}, timeout=15)
 #     r.raise_for_status()
 #     data = r.json()
-#     return float(data.get("ethereum",{}).get("usd", 0.0))  
+#     return float(data.get("ethereum",{}).get("usd", 0.0))

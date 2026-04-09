@@ -8,6 +8,3 @@ app.include_router(router)
 @app.get("/")
 async def root():
     return {"status": "ok"}
-
-
-    

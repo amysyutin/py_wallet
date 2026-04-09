@@ -1,5 +1,6 @@
 import os
 from dotenv import load_dotenv
+
 load_dotenv()
 
 BINANCE_BASE_URL = "https://api.binance.com"
@@ -20,14 +21,14 @@ RPC_URL_MAIN = os.getenv("RPC_URL_MAINNET", "")
 RPC_URL_BASE = os.getenv("RPC_URL_BASE", "")
 RPC_URL_BNB = os.getenv("RPC_URL_BNB", "")
 RPC_URL_ARB = os.getenv("RPC_URL_ARB", "")
-RPC_URL_LINEA = os.getenv("RPC_URL_LINEA", "") 
+RPC_URL_LINEA = os.getenv("RPC_URL_LINEA", "")
 
 CHAIN_RPC = {
     "mainnet": RPC_URL_MAIN,
     "base": RPC_URL_BASE,
     "bnb": RPC_URL_BNB,
     "arbitrum": RPC_URL_ARB,
-    "linea": RPC_URL_LINEA
+    "linea": RPC_URL_LINEA,
 }
 
 COINGECKO_PLATFORM = {
@@ -81,12 +82,5 @@ TOKENS_BY_CHAIN = {
         "ETH": NATIVE_ETH_ADDRESS,
         "USDT": "0xa219439258ca9da29e9cc4ce5596924745e12b93",
         "USDC": "0xc226f6Df6c60f5a992cEa8a620c10D50fE2F04e4",
-    }
+    },
 }
-
-
-
-
-
-
-

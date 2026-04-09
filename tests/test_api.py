@@ -49,4 +49,3 @@ def test_binance_balance(mock_service):
     assert data["total_usdt"] == 5000.0
     assert len(data["assets"]) == 1
     assert data["assets"][0]["asset"] == "BTC"
-

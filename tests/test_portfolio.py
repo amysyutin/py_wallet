@@ -57,10 +57,3 @@ def test_summarize_binance_usdt_timeout():
         assert "error" in result
         assert result["total_usdt"] == 0.0
         assert result["error"] == "Connection failed"
-
-
-
-
-
-
-

@@ -1,7 +1,8 @@
 from app.connectors.rpc import eth_call
 
+
 def _pad_addr_32(addr: str) -> str:
-    return "0x" + "0"*24 + addr.lower()[2:]
+    return "0x" + "0" * 24 + addr.lower()[2:]
 
 
 def balance_of(rpc_url: str, token: str, address: str) -> int:
@@ -10,7 +11,8 @@ def balance_of(rpc_url: str, token: str, address: str) -> int:
     return int(res, 16) if res not in (None, "0x") else 0
 
 
-_DECIMALS_CACHE: dict[tuple[str,str], int] = {}
+_DECIMALS_CACHE: dict[tuple[str, str], int] = {}
+
 
 def decimals(rpc_url: str, token: str) -> int:
     key = (rpc_url, token.lower())
@@ -24,13 +26,8 @@ def decimals(rpc_url: str, token: str) -> int:
         try:
             _DECIMALS_CACHE[key] = int(res, 16)
         except Exception:
-            _DECIMALS_CACHE[key] = 18        
+            _DECIMALS_CACHE[key] = 18
     return _DECIMALS_CACHE[key]
-
-
-
-
-
 
 
 # def erc20_decimals(rpc_url: str, token: str) -> int:
