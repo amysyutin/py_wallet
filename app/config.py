@@ -12,11 +12,11 @@ BINANCE_API_SECRET = os.getenv("BINANCE_SECRET", "")
 if BINANCE_API_SECRET is None:
     raise ValueError("Переменная BINANCE_API_SECRET не найдена в .env или окружении")
 
-ADDRESS_EVM = os.getenv("ADDRESS", "")
+ADDRESS_EVM = os.getenv("EVM1_ADDRESS", "")
 if ADDRESS_EVM is None:
-    raise ValueError("Переменная ADDRESS не найдена в .env или окружении")
+    raise ValueError("Переменная EVM1_ADDRESS не найдена в .env или окружении")
 
-RPC_URL_MAIN = os.getenv("RPC_URL_MAINET", "")
+RPC_URL_MAIN = os.getenv("RPC_URL_MAINNET", "")
 RPC_URL_BASE = os.getenv("RPC_URL_BASE", "")
 RPC_URL_BNB = os.getenv("RPC_URL_BNB", "")
 RPC_URL_ARB = os.getenv("RPC_URL_ARB", "")

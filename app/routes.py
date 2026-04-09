@@ -15,7 +15,7 @@ async def health():
 async def get_assets(address: str = ""):
     resolved = address or ADDRESS_EVM
     if not resolved:
-        raise HTTPException(status_code=400, detail="ADDRESS не задан и параметр address не передан")
+        raise HTTPException(status_code=400, detail="EVM1_ADDRESS не задан и параметр address не передан")
     summary = summarize_all(resolved)
     return summary.model_dump()
 

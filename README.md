@@ -47,7 +47,7 @@ cripto_analyzer/
 | GET | `/assets?address=0x...` | Портфель по EVM-сетям — нативные токены, USDT, USDC |
 | GET | `/binance/balance` | Портфель Binance — Spot + Earn Flexible + Earn Locked |
 
-`/assets` — если параметр `address` не передан, используется `ADDRESS` из `.env`.
+`/assets` — если параметр `address` не передан, используется `EVM1_ADDRESS` из `.env`.
 
 ## Переменные окружения
 
@@ -61,8 +61,8 @@ cp .env.example .env
 |------------|-----------|
 | `BINANCE_API_KEY` | API-ключ Binance |
 | `BINANCE_SECRET` | Секрет Binance |
-| `ADDRESS` | EVM-адрес кошелька по умолчанию |
-| `RPC_URL_MAINET` | RPC-URL Ethereum Mainnet |
+| `EVM1_ADDRESS` | EVM-адрес кошелька по умолчанию |
+| `RPC_URL_MAINNET` | RPC-URL Ethereum Mainnet |
 | `RPC_URL_BASE` | RPC-URL Base |
 | `RPC_URL_BNB` | RPC-URL BNB Chain |
 | `RPC_URL_ARB` | RPC-URL Arbitrum |
