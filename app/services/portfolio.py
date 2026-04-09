@@ -11,7 +11,8 @@ def summarize_chain(chain: str, address: str) -> ChainSummary:
 
     # native_usd_price = get_native_price_usd_cached(chain)
     tokens_cfg = TOKENS_BY_CHAIN.get(chain, {})
-    usdt_c = tokens_cfg.get("USDT"); usdc_c = tokens_cfg.get("USDC")
+    usdt_c = tokens_cfg.get("USDT")
+    usdc_c = tokens_cfg.get("USDC")
 
     usdt_amt = (balance_of(rpc_url, usdt_c, address) / (10 ** decimals(rpc_url, usdt_c))) if usdt_c else 0.0
     usdc_amt = (balance_of(rpc_url, usdc_c, address) / (10 ** decimals(rpc_url, usdc_c))) if usdc_c else 0.0

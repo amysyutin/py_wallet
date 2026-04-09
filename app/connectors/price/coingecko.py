@@ -1,7 +1,7 @@
 
 
 import requests
-from app.config import COINGECKO_PLATFORM, TOKENS_BY_CHAIN, NATIVE_CG_ID
+from app.config import NATIVE_CG_ID
 
 ETH_USD_CACHE: float | None = None
 NATIVE_PRICE_CACHE: dict[str, float] = {}

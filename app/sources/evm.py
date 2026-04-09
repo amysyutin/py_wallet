@@ -1,5 +1,3 @@
-from typing import List
-from app.models import Asset
 from app.services.portfolio import summarize_chain
 from app.config import ADDRESS_EVM, CHAIN_RPC
 from app.connectors.price.coingecko import get_native_price_usd_cached

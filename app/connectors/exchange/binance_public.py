@@ -1,4 +1,5 @@
-import time, requests
+import time
+import requests
 from app.config import BINANCE_BASE_URL
 
 _PRICES = {"data": None, "ts": 0}
@@ -14,7 +15,8 @@ def load_all_price_cached(ttl: int = 30) -> dict[str, float]:
     return data
 
 def to_usdt(asset: str, amount: float, prices: dict[str, float]) -> float:
-    if asset.upper() == "USDT": return amount
+    if asset.upper() == "USDT": 
+        return amount
     return amount * prices.get(f"{asset.upper()}USDT", 0.0)
 
 

@@ -1,8 +1,10 @@
-from pydantic_core.core_schema import bytes_schema
-import requests, time, hmac, hashlib
+import requests
+import time
+import hmac
+import hashlib
 from urllib.parse import urlencode
 from app.config import BINANCE_API_KEY, BINANCE_API_SECRET, BINANCE_BASE_URL
-
+from requests.adapters import HTTPAdapter, Retry
 
 
 #  time Binance 
@@ -18,9 +20,7 @@ def sync_server_time():
     r = requests.get(f"{BINANCE_BASE_URL}/api/v3/time", timeout=10)
     r.raise_for_status()
     _TIME_OFFSET_MS = r.json()["serverTime"] - int(time.time()*1000)
-    
 
-from requests.adapters import HTTPAdapter, Retry
 
 _session = requests.Session()
 _retry = Retry(
@@ -49,7 +49,7 @@ def get_account_balances_spot() -> list[dict]:
     try:
         r = signed_get("/api/v3/account", {})
         if r.status_code == 400 and r.text.find("Timestamp") != -1:
-            sync_server_time(); 
+            sync_server_time() 
             r = signed_get("/api/v3/account", {})
         r.raise_for_status()
         return r.json().get("balances", [])
@@ -63,7 +63,7 @@ def get_account_balances_earn() -> list[dict]:
     try:
         r = signed_get("/sapi/v1/simple-earn/flexible/position", {})
         if r.status_code == 400 and "Timestamp" in r.text:
-            sync_server_time(); 
+            sync_server_time() 
             r = signed_get("/sapi/v1/simple-earn/flexible/position", {})
         r.raise_for_status()
 
@@ -130,10 +130,6 @@ def get_account_balances_earn_locked() -> list[dict]:
 
     except requests.ReadTimeout:
         raise TimeoutError("Binance earn loked request time out")                
-
-
-
-
 
 
 
