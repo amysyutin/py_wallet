@@ -26,9 +26,12 @@ cripto_analyzer/
 │   └── sources/
 │       └── evm.py                    # CLI-скрипт для отладки EVM-портфеля
 ├── tests/
-│   ├── conftest.py                   # Pytest-фикстуры
-│   ├── test_api.py                   # Тесты эндпоинтов
-│   └── test_portfolio.py             # Тесты бизнес-логики Binance
+│   ├── conftest.py                   # Pytest-фикстуры и маркеры
+│   ├── test_api.py                   # Интеграционные тесты эндпоинтов (12)
+│   ├── test_portfolio.py             # Unit-тесты бизнес-логики Binance (9)
+│   ├── test_evm_portfolio.py         # Unit-тесты EVM-портфеля (8)
+│   ├── test_connectors.py            # Unit-тесты коннекторов rpc/erc20/coingecko (15)
+│   └── test_utils.py                 # Unit-тесты утилит и Pydantic-моделей (22)
 ├── Dockerfile
 ├── docker-compose.yml
 ├── .dockerignore
@@ -99,15 +102,38 @@ uvicorn app.main:app --reload --port 8000
 
 ## Тестирование
 
+**66 тестов** — unit + интеграционные, выполняются за ~0.5 сек без сети и секретов.
+
 ```bash
-# С активированным venv
+# Все тесты
 pytest -v
 
-# Или напрямую
-.venv/bin/pytest -v
+# Только быстрые (для CI)
+pytest -m "not slow and not e2e"
+
+# Конкретный файл
+pytest tests/test_api.py -v
+
+# С покрытием
+pytest --cov=app --cov-report=term-missing
 ```
 
-Тесты используют `unittest.mock.patch` для изоляции от внешних API (Binance, RPC, CoinGecko).
+### Структура тестов
+
+| Файл | Тип | Кол-во | Что покрывает |
+|------|-----|:------:|---------------|
+| `test_utils.py` | Unit | 22 | `to_usdt`, `filter_nonzero`, `_pad_addr_32`, Pydantic-модели |
+| `test_connectors.py` | Unit | 15 | `get_balance`, `eth_call`, `balance_of`, `decimals`, CoinGecko-кэш |
+| `test_portfolio.py` | Unit | 9 | `summarize_binance_usdt` — happy path, timeout, граничные случаи |
+| `test_evm_portfolio.py` | Unit | 8 | `summarize_chain`, `summarize_all` — цепочки, токены, агрегация |
+| `test_api.py` | Integration | 12 | Все эндпоинты через `TestClient` — роутинг, сериализация, ошибки |
+
+Все тесты изолированы от внешних API через `unittest.mock.patch`. Подробная документация по тестам — в `TESTING.md`.
+
+### Маркеры
+
+- `@pytest.mark.slow` — тесты с реальными API (не запускаются в CI)
+- `@pytest.mark.e2e` — end-to-end тесты (требуют секреты и сеть)
 
 ## Документация API
 
@@ -115,6 +141,16 @@ pytest -v
 
 - Swagger UI: http://127.0.0.1:8000/docs
 - ReDoc: http://127.0.0.1:8000/redoc
+
+## CI/CD
+
+GitHub Actions запускается на каждый PR в `main`:
+
+1. **Lint** — `ruff check` + `black --check`
+2. **Tests** — `pytest -v` на Python 3.11 и 3.12
+3. **Docker smoke** — сборка образа, запуск контейнера, проверка `/health`
+
+Конфигурация: `.github/workflows/ci.yml`
 
 ## Docker-окружение
 
