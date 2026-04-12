@@ -13,7 +13,9 @@ MODULE = "app.services.portfolio"
 @patch(f"{MODULE}.decimals", return_value=6)
 @patch(f"{MODULE}.balance_of", return_value=0)
 @patch(f"{MODULE}.get_balance", return_value=1_000_000_000_000_000_000)
-def test_summarize_chain_mainnet(mock_get_bal, mock_erc20_bal, mock_dec, mock_eth_price):
+def test_summarize_chain_mainnet(
+    mock_get_bal, mock_erc20_bal, mock_dec, mock_eth_price
+):
     with patch(f"{MODULE}.CHAIN_RPC", {"mainnet": "https://rpc.fake"}):
         cs = summarize_chain("mainnet", "0xABC")
     assert cs.chain == "mainnet"
@@ -28,10 +30,15 @@ def test_summarize_chain_mainnet(mock_get_bal, mock_erc20_bal, mock_dec, mock_et
 @patch(f"{MODULE}.decimals", return_value=6)
 @patch(f"{MODULE}.balance_of")
 @patch(f"{MODULE}.get_balance", return_value=0)
-def test_summarize_chain_with_stablecoins(mock_get_bal, mock_erc20_bal, mock_dec, mock_eth_price):
+def test_summarize_chain_with_stablecoins(
+    mock_get_bal, mock_erc20_bal, mock_dec, mock_eth_price
+):
     # balance_of вызывается для USDT, USDC, и на bnb ещё для ETH
     # Для mainnet: USDT, USDC — 2 вызова
-    mock_erc20_bal.side_effect = [500_000_000, 250_000_000]  # 500 USDT, 250 USDC (6 decimals)
+    mock_erc20_bal.side_effect = [
+        500_000_000,
+        250_000_000,
+    ]  # 500 USDT, 250 USDC (6 decimals)
     cs = summarize_chain("mainnet", "0xABC")
     assert cs.usdt_amount == 500.0
     assert cs.usdc_amount == 250.0
@@ -41,7 +48,9 @@ def test_summarize_chain_with_stablecoins(mock_get_bal, mock_erc20_bal, mock_dec
 @patch(f"{MODULE}.decimals", return_value=18)
 @patch(f"{MODULE}.balance_of")
 @patch(f"{MODULE}.get_balance", return_value=5_000_000_000_000_000_000)
-def test_summarize_chain_bnb_with_eth_token(mock_get_bal, mock_erc20_bal, mock_dec, mock_eth_price):
+def test_summarize_chain_bnb_with_eth_token(
+    mock_get_bal, mock_erc20_bal, mock_dec, mock_eth_price
+):
     # BNB chain: balance_of вызывается для USDT, USDC, ETH_token — 3 вызова
     # USDT=0, USDC=0, ETH=2e18 (2 ETH on BNB)
     mock_erc20_bal.side_effect = [0, 0, 2_000_000_000_000_000_000]
@@ -59,7 +68,9 @@ def test_summarize_chain_bnb_with_eth_token(mock_get_bal, mock_erc20_bal, mock_d
 @patch(f"{MODULE}.decimals", return_value=18)
 @patch(f"{MODULE}.balance_of", return_value=0)
 @patch(f"{MODULE}.get_balance", return_value=0)
-def test_summarize_chain_bnb_no_eth_token(mock_get_bal, mock_erc20_bal, mock_dec, mock_eth_price):
+def test_summarize_chain_bnb_no_eth_token(
+    mock_get_bal, mock_erc20_bal, mock_dec, mock_eth_price
+):
     """Если ETH on BNB баланс = 0, токен не добавляется."""
     cs = summarize_chain("bnb", "0xABC")
     assert cs.tokens == []
@@ -69,7 +80,9 @@ def test_summarize_chain_bnb_no_eth_token(mock_get_bal, mock_erc20_bal, mock_dec
 @patch(f"{MODULE}.decimals", return_value=6)
 @patch(f"{MODULE}.balance_of", return_value=0)
 @patch(f"{MODULE}.get_balance", return_value=0)
-def test_summarize_chain_no_rpc_url(mock_get_bal, mock_erc20_bal, mock_dec, mock_eth_price):
+def test_summarize_chain_no_rpc_url(
+    mock_get_bal, mock_erc20_bal, mock_dec, mock_eth_price
+):
     """Цепочка без RPC URL → native_amount = 0."""
     with patch(f"{MODULE}.CHAIN_RPC", {"test_chain": ""}):
         with patch(f"{MODULE}.TOKENS_BY_CHAIN", {"test_chain": {}}):
@@ -90,12 +103,18 @@ def test_summarize_all_aggregates_chains(mock_chain, mock_price):
     mock_price.return_value = 3000.0
 
     chain1 = ChainSummary(
-        chain="mainnet", native_symbol="ETH",
-        native_amount=1.0, usdt_amount=100.0, usdc_amount=50.0,
+        chain="mainnet",
+        native_symbol="ETH",
+        native_amount=1.0,
+        usdt_amount=100.0,
+        usdc_amount=50.0,
     )
     chain2 = ChainSummary(
-        chain="base", native_symbol="ETH",
-        native_amount=0.5, usdt_amount=0.0, usdc_amount=0.0,
+        chain="base",
+        native_symbol="ETH",
+        native_amount=0.5,
+        usdt_amount=0.0,
+        usdc_amount=0.0,
     )
     mock_chain.side_effect = [chain1, chain2]
 
@@ -116,8 +135,11 @@ def test_summarize_all_includes_token_usd(mock_chain, mock_price):
 
     token = TokenBalance(symbol="ETH_on_bnb", amount=2.0, usd=6000.0)
     chain = ChainSummary(
-        chain="bnb", native_symbol="BNB",
-        native_amount=10.0, usdt_amount=0.0, usdc_amount=0.0,
+        chain="bnb",
+        native_symbol="BNB",
+        native_amount=10.0,
+        usdt_amount=0.0,
+        usdc_amount=0.0,
         tokens=[token],
     )
     mock_chain.return_value = chain

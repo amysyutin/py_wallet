@@ -10,25 +10,47 @@ def _patch_all(**overrides):
     """Хелпер: создаёт стандартный набор моков для summarize_binance_usdt."""
     defaults = {
         "sync_server_time": None,
-        "spot": [{"asset": "BTC", "free": "0.1", "locked": "0.0"},
-                 {"asset": "USDT", "free": "100", "locked": "0.0"}],
+        "spot": [
+            {"asset": "BTC", "free": "0.1", "locked": "0.0"},
+            {"asset": "USDT", "free": "100", "locked": "0.0"},
+        ],
         "earn": [{"asset": "ETH", "amount": 1.0}],
         "earn_locked": [],
-        "prices": {"BTCUSDT": 50000.0, "ETHUSDT": 3000.0, "BNBUSDT": 400.0, "USDT": 1.0},
+        "prices": {
+            "BTCUSDT": 50000.0,
+            "ETHUSDT": 3000.0,
+            "BNBUSDT": 400.0,
+            "USDT": 1.0,
+        },
     }
     defaults.update(overrides)
 
     def decorator(func):
         @patch(f"{MODULE}.load_all_price_cached", return_value=defaults["prices"])
-        @patch(f"{MODULE}.get_account_balances_earn_locked", return_value=defaults["earn_locked"])
+        @patch(
+            f"{MODULE}.get_account_balances_earn_locked",
+            return_value=defaults["earn_locked"],
+        )
         @patch(f"{MODULE}.get_account_balances_earn", return_value=defaults["earn"])
         @patch(f"{MODULE}.get_account_balances_spot", return_value=defaults["spot"])
         @patch(f"{MODULE}.sync_server_time")
-        def wrapper(mock_sync, mock_spot, mock_earn, mock_locked, mock_prices, *args, **kwargs):
-            return func(mock_sync, mock_spot, mock_earn, mock_locked, mock_prices, *args, **kwargs)
+        def wrapper(
+            mock_sync, mock_spot, mock_earn, mock_locked, mock_prices, *args, **kwargs
+        ):
+            return func(
+                mock_sync,
+                mock_spot,
+                mock_earn,
+                mock_locked,
+                mock_prices,
+                *args,
+                **kwargs,
+            )
+
         wrapper.__name__ = func.__name__
         wrapper.__qualname__ = func.__qualname__
         return wrapper
+
     return decorator
 
 
@@ -36,7 +58,9 @@ def _patch_all(**overrides):
 
 
 @_patch_all()
-def test_summarize_binance_usdt_success(mock_sync, mock_spot, mock_earn, mock_locked, mock_prices):
+def test_summarize_binance_usdt_success(
+    mock_sync, mock_spot, mock_earn, mock_locked, mock_prices
+):
     result = summarize_binance_usdt()
 
     assert "assets" in result
@@ -79,7 +103,9 @@ def test_all_balances_zero(mock_sync, mock_spot, mock_earn, mock_locked, mock_pr
     earn_locked=[],
     prices={"SHIBUSDT": 0.00001, "DOGEUSDT": 0.1},
 )
-def test_unknown_assets_ignored(mock_sync, mock_spot, mock_earn, mock_locked, mock_prices):
+def test_unknown_assets_ignored(
+    mock_sync, mock_spot, mock_earn, mock_locked, mock_prices
+):
     """Активы вне important_assets (BTC, ETH, BNB, USDT, USDC) игнорируются."""
     result = summarize_binance_usdt()
     assert result["total_usdt"] == 0.0
@@ -110,7 +136,9 @@ def test_alias_mapping(mock_sync, mock_spot, mock_earn, mock_locked, mock_prices
     earn_locked=[{"asset": "BNB", "amount": 10.0}],
     prices={"BNBUSDT": 400.0},
 )
-def test_earn_locked_included(mock_sync, mock_spot, mock_earn, mock_locked, mock_prices):
+def test_earn_locked_included(
+    mock_sync, mock_spot, mock_earn, mock_locked, mock_prices
+):
     """Активы из earn_locked учитываются в итоговой сумме."""
     result = summarize_binance_usdt()
     assert result["total_usdt"] == 4000.0
@@ -124,7 +152,9 @@ def test_earn_locked_included(mock_sync, mock_spot, mock_earn, mock_locked, mock
     earn_locked=[],
     prices={"BTCUSDT": 1.0},
 )
-def test_tiny_usd_value_format(mock_sync, mock_spot, mock_earn, mock_locked, mock_prices):
+def test_tiny_usd_value_format(
+    mock_sync, mock_spot, mock_earn, mock_locked, mock_prices
+):
     """Если usd < 0.01, usdt_str отображается как '<0.01'."""
     result = summarize_binance_usdt()
     btc = next(a for a in result["assets"] if a["asset"] == "BTC")
@@ -137,7 +167,9 @@ def test_tiny_usd_value_format(mock_sync, mock_spot, mock_earn, mock_locked, moc
     earn_locked=[{"asset": "BTC", "amount": 0.2}],
     prices={"BTCUSDT": 50000.0},
 )
-def test_same_asset_multiple_sources(mock_sync, mock_spot, mock_earn, mock_locked, mock_prices):
+def test_same_asset_multiple_sources(
+    mock_sync, mock_spot, mock_earn, mock_locked, mock_prices
+):
     """Один актив из разных источников — все строки попадают в результат."""
     result = summarize_binance_usdt()
     btc_rows = [a for a in result["assets"] if a["asset"] == "BTC"]

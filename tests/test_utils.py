@@ -8,7 +8,6 @@ from app.connectors.exchange.binance import filter_nonzero
 from app.connectors.erc20 import _pad_addr_32
 from app.models import TokenBalance, ChainSummary, PortfolioSummary
 
-
 # ─── to_usdt ────────────────────────────────────────────────────────────────
 
 
