@@ -54,7 +54,8 @@ def test_summarize_chain_bnb_with_eth_token(
     # BNB chain: balance_of вызывается для USDT, USDC, ETH_token — 3 вызова
     # USDT=0, USDC=0, ETH=2e18 (2 ETH on BNB)
     mock_erc20_bal.side_effect = [0, 0, 2_000_000_000_000_000_000]
-    cs = summarize_chain("bnb", "0xABC")
+    with patch(f"{MODULE}.CHAIN_RPC", {"bnb": "https://rpc.fake"}):
+        cs = summarize_chain("bnb", "0xABC")
     assert cs.chain == "bnb"
     assert cs.native_symbol == "BNB"
     assert cs.native_amount == 5.0
