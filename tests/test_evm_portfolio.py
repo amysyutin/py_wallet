@@ -1,6 +1,6 @@
 """Unit-тесты сервиса EVM-портфолио: summarize_chain, summarize_all."""
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from app.services.portfolio import summarize_chain, summarize_all
 
 MODULE = "app.services.portfolio"
@@ -85,7 +85,7 @@ def test_summarize_chain_no_rpc_url(mock_get_bal, mock_erc20_bal, mock_dec, mock
 @patch(f"{MODULE}.get_native_price_usd_cached")
 @patch(f"{MODULE}.summarize_chain")
 def test_summarize_all_aggregates_chains(mock_chain, mock_price):
-    from app.models import ChainSummary, TokenBalance
+    from app.models import ChainSummary
 
     mock_price.return_value = 3000.0
 

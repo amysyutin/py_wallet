@@ -1,6 +1,5 @@
 """Unit-тесты коннекторов: rpc, erc20, coingecko — с моком HTTP-запросов."""
 
-import pytest
 from unittest.mock import patch, MagicMock
 
 from app.connectors.rpc import get_balance, eth_call
