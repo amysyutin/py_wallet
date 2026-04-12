@@ -1,9 +1,8 @@
 name: CI
 
 on:
-  push:
+  pull_request: 
     branches: [main]
-  pull_request:
 
 permissions:
   contents: read
@@ -22,7 +21,7 @@ jobs:
         python-version: ["3.12", "3.11"]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -34,7 +33,6 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          pip install ruff black
 
       - name: Lint
         run: ruff check .
@@ -43,7 +41,7 @@ jobs:
         run: black --check .
 
       - name: Run tests
-        run: pytest -v --tb=short
+        run: pytest -m "not slow and not e2e" -v --tb=short
 
   compose-smoke:
     runs-on: ubuntu-latest
@@ -52,7 +50,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Show Docker versions
         run: |

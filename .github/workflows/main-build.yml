@@ -1,0 +1,29 @@
+name: Main Build
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: main-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+
+
+  docker-build:
+    needs: test
+
+  compose-smoke:
+    needs: docker-build
+
+
+  tagging:
+    needs: compose-smoke
+
+
+
