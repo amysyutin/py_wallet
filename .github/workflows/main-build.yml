@@ -13,17 +13,114 @@ concurrency:
 
 jobs:
   test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy: 
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.11"]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+          cache-dependency-path: "requirements.txt"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install black==26.3.1
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Format check
+        run: black --check .
+
+      - name: Run tests
+        run: pytest -m "not slow and not e2e" -v --tb=short
 
 
   docker-build:
     needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build Docker image
+        run: docker build -t cripto_analyzer:ci .
 
   compose-smoke:
-    needs: docker-build
+    needs: [docker-build, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
 
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
 
-  tagging:
-    needs: compose-smoke
+      - name: Show Docker versions
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Create .env
+        run: |
+          cat > .env <<'EOF'
+          APP_ENV=ci
+          BINANCE_API_KEY=${{ secrets.BINANCE_API_KEY }}
+          BINANCE_SECRET=${{ secrets.BINANCE_SECRET }}
+          EVM1_ADDRESS=${{ secrets.EVM1_ADDRESS }}
+          BYBIT_API_KEY=${{ secrets.BYBIT_API_KEY }}
+          BYBIT_SECRET=${{ secrets.BYBIT_SECRET }}
+          OKX_API_KEY=${{ secrets.OKX_API_KEY }}
+          OKX_SECRET=${{ secrets.OKX_SECRET }}
+          RPC_URL_MAINNET=https://ethereum-rpc.publicnode.com
+          RPC_URL_BASE=https://base.drpc.org
+          RPC_URL_BNB=https://bsc.drpc.org
+          RPC_URL_ARB=https://arbitrum-one-rpc.publicnode.com
+          RPC_URL_LINEA=https://linea.drpc.org
+          EOF
+
+      - name: Validate compose file
+        run: docker compose -f docker-compose.ci.yml config
+
+      - name: Start stack
+        run: docker compose -f docker-compose.ci.yml up -d --build
+
+      - name: Wait for app health
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/health; then
+              echo ""
+              echo "Application is healthy"
+              exit 0
+            fi
+            echo "Waiting for application... attempt $i"
+            sleep 2
+          done
+          echo "Application did not become healthy in time"
+          exit 1
+
+      - name: Smoke test endpoints
+        run: |
+          echo "--- GET / ---"
+          curl -fsS http://127.0.0.1:8000/
+          echo ""
+          echo "--- GET /health ---"
+          curl -fsS http://127.0.0.1:8000/health
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.ci.yml logs --no-color
+
+      - name: Stop stack
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v
+
 
 
 
