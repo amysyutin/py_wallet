@@ -32,8 +32,13 @@ cripto_analyzer/
 │   ├── test_evm_portfolio.py         # Unit-тесты EVM-портфеля (8)
 │   ├── test_connectors.py            # Unit-тесты коннекторов rpc/erc20/coingecko (15)
 │   └── test_utils.py                 # Unit-тесты утилит и Pydantic-моделей (22)
+├── .github/
+│   └── workflows/
+│       ├── ci.yml                  # PR → main: тесты + compose-smoke
+│       └── main-build.yml          # push в main (+ опционально PR): тесты, docker build, smoke
 ├── Dockerfile
 ├── docker-compose.yml
+├── docker-compose.ci.yml           # Compose для smoke в GitHub Actions
 ├── .dockerignore
 ├── .env.example
 ├── .gitignore
@@ -128,7 +133,7 @@ pytest --cov=app --cov-report=term-missing
 | `test_evm_portfolio.py` | Unit | 8 | `summarize_chain`, `summarize_all` — цепочки, токены, агрегация |
 | `test_api.py` | Integration | 12 | Все эндпоинты через `TestClient` — роутинг, сериализация, ошибки |
 
-Все тесты изолированы от внешних API через `unittest.mock.patch`. Подробная документация по тестам — в `TESTING.md`.
+Все тесты изолированы от внешних API через `unittest.mock.patch`.
 
 ### Маркеры
 
@@ -144,13 +149,34 @@ pytest --cov=app --cov-report=term-missing
 
 ## CI/CD
 
-GitHub Actions запускается на каждый PR в `main`:
+Workflow’ы лежат в [`.github/workflows/`](.github/workflows/).
 
-1. **Lint** — `ruff check` + `black --check`
-2. **Tests** — `pytest -v` на Python 3.11 и 3.12
-3. **Docker smoke** — сборка образа, запуск контейнера, проверка `/health`
+### Когда что запускается
 
-Конфигурация: `.github/workflows/ci.yml`
+| Событие | [ci.yml](.github/workflows/ci.yml) | [main-build.yml](.github/workflows/main-build.yml) |
+|---------|:----------------------------------:|:--------------------------------------------------:|
+| Открыт или обновлён **PR в `main`** | да | да (если в `main-build` оставлен триггер `pull_request`) |
+| **Push в `main`** (например после merge) | нет | да |
+
+**Практика:** чтобы не дублировать прогон на каждом PR, в `main-build.yml` обычно оставляют только `push` в `main`; проверку перед merge тогда даёт один workflow — `ci.yml`. Если у тебя в `main-build` включён и `pull_request`, и `push`, на PR отработают оба — это осознанный выбор или повод упростить.
+
+### Что делают job’ы
+
+**Общее:** job **test** (matrix Python **3.11** и **3.12**) — `ruff`, `black --check`, `pytest -m "not slow and not e2e"`.
+
+**[ci.yml](.github/workflows/ci.yml):** `test` → **compose-smoke** (`docker compose -f docker-compose.ci.yml up --build`, ожидание `GET /health`, curl к `/` и `/health`).
+
+**[main-build.yml](.github/workflows/main-build.yml):** `test` → **docker-build** (`docker build` без push) → **compose-smoke** (тот же сценарий, что в CI).
+
+Для compose в CI создаётся `.env`; при необходимости задай секреты в репозитории (**Settings → Secrets**).
+
+### Локально как в CI
+
+```bash
+ruff check .
+black --check .
+pytest -m "not slow and not e2e" -v --tb=short
+```
 
 ## Docker-окружение
 
