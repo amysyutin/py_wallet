@@ -4,4 +4,5 @@ venv/
 .pytest_cache/
 .venv/
 .vscode/
-CI_GUIDE.md
+CI_GUIDE.md.venv/
+.venv/
