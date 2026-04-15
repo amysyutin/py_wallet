@@ -1,6 +1,6 @@
 services:
   app:
-    image: ghcr.io/amysyutin/cripto_analyzer:latest
+    image: ghcr.io/amysyutin/py_wallet:latest
     env_file:
       - /home/cript/cripto_secrets/.env
     ports:
