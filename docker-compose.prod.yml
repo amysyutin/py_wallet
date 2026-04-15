@@ -2,7 +2,7 @@ services:
   app:
     image: ghcr.io/amysyutin/cripto_analyzer:latest
     env_file:
-      - .env
+      - /home/cript/cripto_secrets/.env
     ports:
       - "8000:8000"
     restart: unless-stopped
