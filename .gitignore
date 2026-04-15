@@ -1,7 +1,5 @@
 .env
 __pycache__/
-venv/
 .pytest_cache/
-.venv/
 .vscode/
-CI_GUIDE.md
+.venv/
