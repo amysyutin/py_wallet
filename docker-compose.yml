@@ -1,7 +1,7 @@
 services:
   app:
     build: .
-    image: cripto_analyzer:latest
+    image: py_wallet:latest
     env_file:
       - /home/cript/cripto_secrets/.env
     ports:
