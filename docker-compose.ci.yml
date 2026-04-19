@@ -1,7 +1,7 @@
 services:
   app:
     build: .
-    image: cripto_analyzer:ci
+    image: py_wallet:ci
     env_file:
       - .env
     ports:

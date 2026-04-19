@@ -33,9 +33,7 @@ jobs:
           cache-dependency-path: "requirements.txt"
 
       - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install black==26.3.1
+        run: pip install -r requirements-dev.txt
 
       - name: Lint
         run: ruff check .
@@ -46,17 +44,31 @@ jobs:
       - name: Run tests
         run: pytest -m "not slow and not e2e" -v --tb=short
 
-
   docker-build:
     needs: test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
       - name: Build Docker image
-        run: docker build -t cripto_analyzer:ci .
+        run: docker build -t py_wallet:${{ github.sha }} .
+
+      - name: Save image like artifact
+        run: docker save py_wallet:${{ github.sha }} | gzip > image.tar.gz
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: image.tar.gz
+          retention-days: 1
+
 
   compose-smoke:
-    needs: [docker-build, test]
+    needs: docker-build
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -64,10 +76,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Show Docker versions
-        run: |
-          docker --version
-          docker compose version
+      - name: Download image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+          
+      - name: Load image info Docker
+        run: gunzip -c image.tar.gz | docker load
+
+      - name: Retag image for compose
+        run: docker tag py_wallet:${{ github.sha }} py_wallet:ci
 
       - name: Create .env
         run: |
@@ -91,7 +109,7 @@ jobs:
         run: docker compose -f docker-compose.ci.yml config
 
       - name: Start stack
-        run: docker compose -f docker-compose.ci.yml up -d --build
+        run: docker compose -f docker-compose.ci.yml up -d
 
       - name: Wait for app health
         run: |
