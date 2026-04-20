@@ -1,13 +1,12 @@
-# Crypto Analyzer
+# py_wallet
 
 FastAPI-сервис для агрегации и мониторинга криптовалютного портфеля. Собирает данные с EVM-сетей (Ethereum, Base, BNB Chain, Arbitrum, Linea) и биржи Binance (Spot, Earn Flexible, Earn Locked), рассчитывает USD-стоимость активов.
 
 ## Структура проекта
 
 ```
-cripto_analyzer/
+py_wallet/
 ├── app/
-│   ├── __init__.py
 │   ├── main.py                       # Точка входа FastAPI
 │   ├── config.py                     # Переменные окружения, адреса токенов, RPC
 │   ├── models.py                     # Pydantic-модели (Asset, PortfolioSummary и др.)
@@ -34,16 +33,18 @@ cripto_analyzer/
 │   └── test_utils.py                 # Unit-тесты утилит и Pydantic-моделей (22)
 ├── .github/
 │   └── workflows/
-│       ├── ci.yml                  # PR → main: тесты + compose-smoke
-│       └── main-build.yml          # push в main (+ опционально PR): тесты, docker build, smoke
+│       ├── ci.yml                    # PR → main: тесты + smoke + Telegram
+│       └── main-build.yml            # push в main: тесты → build → smoke → GHCR → deploy → Telegram
 ├── Dockerfile
-├── docker-compose.yml
-├── docker-compose.ci.yml           # Compose для smoke в GitHub Actions
+├── docker-compose.yml                # Локальная разработка (build из исходников)
+├── docker-compose.ci.yml             # Compose для smoke-тестов в GitHub Actions
+├── docker-compose.prod.yml           # Production (pull из GHCR)
+├── requirements.txt                  # Production-зависимости
+├── requirements-dev.txt              # Dev/CI-зависимости (ruff, black, pytest, httpx)
 ├── .dockerignore
 ├── .env.example
 ├── .gitignore
-├── pytest.ini
-└── requirements.txt
+└── pytest.ini
 ```
 
 ## API-эндпоинты
@@ -81,26 +82,28 @@ cp .env.example .env
 ### Docker (рекомендуется)
 
 ```bash
-# Сборка и запуск
 docker compose up --build -d
-
-# Просмотр логов
 docker compose logs -f
-
-# Остановка
 docker compose down
 ```
 
 Сервис будет доступен на `http://127.0.0.1:8000`.
 
-> **Примечание:** `docker-compose.yml` читает `.env` из `/home/cript/cripto_secrets/.env`. Для локальной разработки измените путь `env_file` или используйте `.env` в корне проекта.
+### Production (на сервере)
+
+На сервере используется `docker-compose.prod.yml` — он не собирает образ, а скачивает готовый из GHCR:
+
+```bash
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+```
 
 ### Локально (без Docker)
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 
 uvicorn app.main:app --reload --port 8000
 ```
@@ -110,14 +113,10 @@ uvicorn app.main:app --reload --port 8000
 **66 тестов** — unit + интеграционные, выполняются за ~0.5 сек без сети и секретов.
 
 ```bash
-# Все тесты
 pytest -v
 
 # Только быстрые (для CI)
 pytest -m "not slow and not e2e"
-
-# Конкретный файл
-pytest tests/test_api.py -v
 
 # С покрытием
 pytest --cov=app --cov-report=term-missing
@@ -149,26 +148,47 @@ pytest --cov=app --cov-report=term-missing
 
 ## CI/CD
 
-Workflow’ы лежат в [`.github/workflows/`](.github/workflows/).
+### Пайплайн
 
-### Когда что запускается
+```
+PR → ci.yml (lint + test + smoke) → merge → main-build.yml → GHCR → deploy → Telegram
+```
 
-| Событие | [ci.yml](.github/workflows/ci.yml) | [main-build.yml](.github/workflows/main-build.yml) |
-|---------|:----------------------------------:|:--------------------------------------------------:|
-| Открыт или обновлён **PR в `main`** | да | да (если в `main-build` оставлен триггер `pull_request`) |
-| **Push в `main`** (например после merge) | нет | да |
+### Два workflow
 
-**Практика:** чтобы не дублировать прогон на каждом PR, в `main-build.yml` обычно оставляют только `push` в `main`; проверку перед merge тогда даёт один workflow — `ci.yml`. Если у тебя в `main-build` включён и `pull_request`, и `push`, на PR отработают оба — это осознанный выбор или повод упростить.
+| Workflow | Триггер | Что делает |
+|----------|---------|------------|
+| [ci.yml](.github/workflows/ci.yml) | PR в `main` | lint → test (matrix 3.11 + 3.12) → compose-smoke → Telegram при падении |
+| [main-build.yml](.github/workflows/main-build.yml) | push в `main` | test → docker-build → compose-smoke → push в GHCR → deploy на сервер → Telegram |
 
-### Что делают job’ы
+### Принцип иммутабельного артефакта
 
-**Общее:** job **test** (matrix Python **3.11** и **3.12**) — `ruff`, `black --check`, `pytest -m "not slow and not e2e"`.
+Образ собирается **один раз** в `docker-build`, сохраняется как GitHub Artifact и передаётся по цепочке:
 
-**[ci.yml](.github/workflows/ci.yml):** `test` → **compose-smoke** (`docker compose -f docker-compose.ci.yml up --build`, ожидание `GET /health`, curl к `/` и `/health`).
+```
+docker-build (собрал) → compose-smoke (протестировал) → build-and-tag (запушил в GHCR) → deploy (на сервере)
+```
 
-**[main-build.yml](.github/workflows/main-build.yml):** `test` → **docker-build** (`docker build` без push) → **compose-smoke** (тот же сценарий, что в CI).
+Один и тот же образ на всех этапах. Build once, deploy everywhere.
 
-Для compose в CI создаётся `.env`; при необходимости задай секреты в репозитории (**Settings → Secrets**).
+### Branch Protection
+
+Ветка `main` защищена:
+- Требуется PR для мержа
+- Требуются зелёные status checks (`test`, `compose-smoke`)
+- Запрещён force push
+- Линейная история коммитов
+
+### Секреты (Settings → Secrets)
+
+| Секрет | Назначение |
+|--------|-----------|
+| `BINANCE_API_KEY`, `BINANCE_SECRET` | Binance API |
+| `EVM1_ADDRESS` | EVM-адрес |
+| `BYBIT_API_KEY`, `BYBIT_SECRET` | Bybit API |
+| `OKX_API_KEY`, `OKX_SECRET` | OKX API |
+| `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY` | SSH-деплой на сервер |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Уведомления в Telegram |
 
 ### Локально как в CI
 
@@ -184,3 +204,5 @@ pytest -m "not slow and not e2e" -v --tb=short
 - **Пользователь:** непривилегированный `appuser`
 - **Порт:** `8000`
 - **Политика перезапуска:** `unless-stopped`
+- **Healthcheck:** через `urllib.request` (curl нет в slim-образе)
+- **Registry:** `ghcr.io/amysyutin/py_wallet`
