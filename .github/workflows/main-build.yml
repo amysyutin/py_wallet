@@ -166,3 +166,46 @@ jobs:
           docker tag py_wallet:${SHA} ${IMAGE}:latest
           docker push ${IMAGE}:${SHA}
           docker push ${IMAGE}:latest
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build-and-tag
+    if: github.ref == 'refs/heads/main'
+    timeout-minutes: 5
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd /home/shared/cripto_analyzer
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d
+            docker image prune -f
+
+  notify:
+    runs-on: ubuntu-latest
+    needs: [deploy, build-and-tag]
+    if: always()
+    timeout-minutes: 2
+
+    steps:
+      - name: Send Telegram notification
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: |
+            ${{ contains(needs.*.result, 'failure') && '❌ FAILED' || '✅ SUCCESS'}}
+
+            Repo: ${{ github.repository }}
+            Branch: ${{ github.ref_name}}
+            Commit: ${{ github.sha}}
+            Author: ${{ github.actor}}
+
+            Run: ${{ github.server_url}}/${{github.repository}}/actions/runs/${{github.run_id}}
+          
+
