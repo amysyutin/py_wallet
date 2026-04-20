@@ -180,11 +180,7 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script: |
-            cd /home/shared/cripto_analyzer
-            docker compose -f docker-compose.prod.yml pull
-            docker compose -f docker-compose.prod.yml up -d
-            docker image prune -f
+          script: sudo -u cript /home/shared/deploy.sh
 
   notify:
     runs-on: ubuntu-latest
