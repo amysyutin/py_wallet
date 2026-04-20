@@ -3,7 +3,7 @@ services:
     build: .
     image: py_wallet:latest
     env_file:
-      - /home/cript/cripto_secrets/.env
+      - /home/shared/cripto_secrets/.env
     ports:
       - "127.0.0.1:8000:8000"
     restart: unless-stopped

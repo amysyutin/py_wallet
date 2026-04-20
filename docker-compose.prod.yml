@@ -2,7 +2,7 @@ services:
   app:
     image: ghcr.io/amysyutin/py_wallet:latest
     env_file:
-      - /home/cript/cripto_secrets/.env
+      - /home/shared/cripto_secrets/.env
     ports:
       - "8000:8000"
     restart: unless-stopped
