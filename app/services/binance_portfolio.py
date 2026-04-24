@@ -6,6 +6,9 @@ from app.connectors.exchange.binance import (
     filter_nonzero,
 )
 from app.connectors.exchange.binance_public import load_all_price_cached, to_usdt
+from app.log import get_logger
+
+logger = get_logger(__name__)
 
 
 def summarize_binance_usdt() -> dict:
@@ -18,7 +21,7 @@ def summarize_binance_usdt() -> dict:
 
         loked_bals = get_account_balances_earn_locked()
 
-        print("EARN BALANCES RAW", earn_bals)
+        logger.debug("Earn balances: %s", earn_bals)
 
     except TimeoutError as e:
         return {"error": str(e), "assets": [], "total_usdt": 0.0}

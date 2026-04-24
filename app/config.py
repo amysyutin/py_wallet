@@ -5,17 +5,9 @@ load_dotenv()
 
 BINANCE_BASE_URL = "https://api.binance.com"
 
-BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "")
-if BINANCE_API_KEY is None:
-    raise ValueError("Переменная BINANCE_API_KEY не найдена в .env или окружении")
-
-BINANCE_API_SECRET = os.getenv("BINANCE_SECRET", "")
-if BINANCE_API_SECRET is None:
-    raise ValueError("Переменная BINANCE_API_SECRET не найдена в .env или окружении")
-
-ADDRESS_EVM = os.getenv("EVM1_ADDRESS", "")
-if ADDRESS_EVM is None:
-    raise ValueError("Переменная EVM1_ADDRESS не найдена в .env или окружении")
+BINANCE_API_KEY = os.getenv("BINANCE_API_KEY") or ""
+BINANCE_API_SECRET = os.getenv("BINANCE_SECRET") or ""
+ADDRESS_EVM = os.getenv("EVM1_ADDRESS") or ""
 
 RPC_URL_MAIN = os.getenv("RPC_URL_MAINNET", "")
 RPC_URL_BASE = os.getenv("RPC_URL_BASE", "")
