@@ -87,13 +87,9 @@ jobs:
         run: |
           cat > .env <<'EOF'
           APP_ENV=ci
-          BINANCE_API_KEY=${{ secrets.BINANCE_API_KEY }}
-          BINANCE_SECRET=${{ secrets.BINANCE_SECRET }}
-          EVM1_ADDRESS=${{ secrets.EVM1_ADDRESS }}
-          BYBIT_API_KEY=${{ secrets.BYBIT_API_KEY }}
-          BYBIT_SECRET=${{ secrets.BYBIT_SECRET }}
-          OKX_API_KEY=${{ secrets.OKX_API_KEY }}
-          OKX_SECRET=${{ secrets.OKX_SECRET }}
+          BINANCE_API_KEY=dummy
+          BINANCE_SECRET=dummy
+          EVM1_ADDRESS=0x0000000000000000000000000000000000000000
           RPC_URL_MAINNET=https://ethereum-rpc.publicnode.com
           RPC_URL_BASE=https://base.drpc.org
           RPC_URL_BNB=https://bsc.drpc.org
@@ -190,7 +186,7 @@ jobs:
 
     steps:
       - name: Send Telegram notification
-        uses: appleboy/telegram-action@master
+        uses: appleboy/telegram-action@v1.0.1
         with:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}

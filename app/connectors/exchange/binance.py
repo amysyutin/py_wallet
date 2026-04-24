@@ -4,7 +4,10 @@ import hmac
 import hashlib
 from urllib.parse import urlencode
 from app.config import BINANCE_API_KEY, BINANCE_API_SECRET, BINANCE_BASE_URL
+from app.log import get_logger
 from requests.adapters import HTTPAdapter, Retry
+
+logger = get_logger(__name__)
 
 #  time Binance
 
@@ -78,7 +81,7 @@ def get_account_balances_earn() -> list[dict]:
             r = signed_get("/sapi/v1/simple-earn/flexible/position", {})
         r.raise_for_status()
 
-        print("FLEX RAW:", r.text[:800])
+        logger.debug("Flexible earn raw response: %s", r.text[:800])
 
         data = r.json()
 
@@ -120,7 +123,7 @@ def get_account_balances_earn_locked() -> list[dict]:
                 },
             )
         r.raise_for_status()
-        print("FLEX RAW:", r.text[:800])
+        logger.debug("Locked earn raw response: %s", r.text[:800])
 
         data = r.json()
 
