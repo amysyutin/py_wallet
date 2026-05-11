@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: py-wallet
+  namespace: py-wallet-dev
+  labels:
+    app.kubernetes.io/name: py-wallet
+    app.kubernetes.io/part-of: py-wallet
+    app.kubernetes.io/part-of: py-wallet
+    app.kubernetes.io/environment: dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: py-wallet
+  template:
+    metadata:
+      labels:
+        app: py-wallet
+        app.kubernetes.io/name: py-wallet
+        app.kubernetes.io/part-of: py-wallet
+        app.kubernetes.io/environment: dev
+    spec:
+      serviceAccountName: default
+      imagePullSecrets:
+        - name: ghcr-secret
+      containers:
+        - name: py-wallet
+          image: ghcr.io/amysyutin/py_wallet:latest
+          imagePullPolicy: Always
+          ports: 
+            - containerPort: 8000
+          envFrom:
+            - secretRef:
+                name: py-wallet-env
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+
+
+
+              
