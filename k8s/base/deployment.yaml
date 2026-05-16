@@ -6,7 +6,6 @@ metadata:
   labels:
     app.kubernetes.io/name: py-wallet
     app.kubernetes.io/part-of: py-wallet
-    app.kubernetes.io/part-of: py-wallet
     app.kubernetes.io/environment: dev
 spec:
   replicas: 1
@@ -22,8 +21,6 @@ spec:
         app.kubernetes.io/environment: dev
     spec:
       serviceAccountName: default
-      imagePullSecrets:
-        - name: ghcr-secret
       containers:
         - name: py-wallet
           image: ghcr.io/amysyutin/py_wallet:latest
