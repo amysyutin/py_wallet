@@ -2,7 +2,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: py-wallet
-  namespace: py-wallet-dev
   labels:
     app.kubernetes.io/name: py-wallet
     app.kubernetes.io/part-of: py-wallet
