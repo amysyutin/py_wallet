@@ -2,6 +2,10 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: py-wallet-tls
+  labels:
+    app.kubernetes.io/name: py-wallet
+    app.kubernetes.io/part-of: py-wallet
+    app.kubernetes.io/environment: dev
 spec:
   secretName: py-wallet-tls
   issuerRef:
