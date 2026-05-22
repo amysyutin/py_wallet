@@ -2,13 +2,13 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: py-wallet
-  namespace: py-wallet-dev
-  labels:
-    app.kubernetes.io/name: py-wallet
-    app.kubernetes.io/part-of: py-wallet
-    app.kubernetes.io/environment: dev
 spec:
-  replicas: 1
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 50%        
+      maxUnavailable: 0%
   selector:
     matchLabels:
       app: py-wallet
@@ -16,11 +16,9 @@ spec:
     metadata:
       labels:
         app: py-wallet
-        app.kubernetes.io/name: py-wallet
-        app.kubernetes.io/part-of: py-wallet
-        app.kubernetes.io/environment: dev
     spec:
       serviceAccountName: default
+      terminationGracePeriodSeconds: 60
       containers:
         - name: py-wallet
           image: ghcr.io/amysyutin/py_wallet:latest
@@ -29,7 +27,9 @@ spec:
             - containerPort: 8000
           envFrom:
             - secretRef:
-                name: py-wallet-env
+                name: py-wallet-secrets 
+            - configMapRef:
+                name: py-wallet-config
           readinessProbe:
             httpGet:
               path: /health
@@ -53,7 +53,3 @@ spec:
             limits:
               cpu: 500m
               memory: 256Mi
-
-
-
-              

@@ -1,0 +1,27 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: py-wallet
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: py-wallet-dev-redirect-https@kubernetescrd
+  labels:
+    app.kubernetes.io/name: py-wallet
+    app.kubernetes.io/part-of: py-wallet
+    app.kubernetes.io/environment: dev
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - py-wallet.45-132-75-118.sslip.io
+      secretName: py-wallet-tls
+  rules:
+    - host: py-wallet.45-132-75-118.sslip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: py-wallet
+                port:
+                  number: 80

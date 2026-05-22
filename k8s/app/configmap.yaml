@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: py-wallet-config
+data:
+  LOG_LEVEL: "INFO"
+  RPC_URL_MAINNET: https://ethereum-rpc.publicnode.com
+  RPC_URL_BASE: https://base.drpc.org
+  RPC_URL_BNB: https://bsc.drpc.org
+  RPC_URL_ARB: https://arbitrum-one-rpc.publicnode.com
+  RPC_URL_LINEA: https://linea.drpc.org
