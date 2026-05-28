@@ -208,6 +208,7 @@ jobs:
           kubectl -n py-wallet-dev describe deployment py-wallet | tail -n 50
 
 
+
   notify:
     runs-on: ubuntu-latest
     needs: [deploy, build-and-tag]
