@@ -159,24 +159,54 @@ jobs:
           IMAGE=ghcr.io/${{ github.repository }}
           SHA=${{ github.sha }}
           docker tag py_wallet:${SHA} ${IMAGE}:${SHA}
-          docker tag py_wallet:${SHA} ${IMAGE}:latest
           docker push ${IMAGE}:${SHA}
-          docker push ${IMAGE}:latest
 
   deploy:
+    needs: [build-and-tag]
     runs-on: ubuntu-latest
-    needs: build-and-tag
-    if: github.ref == 'refs/heads/main'
-    timeout-minutes: 5
-
     steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
+      - uses: azure/setup-kubectl@v3
         with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script: sudo -u cript /home/shared/deploy.sh
+          version: v1.33.0
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p $HOME/.kube
+          if [ -z "${{ secrets.KUBE_CONFIG }}" ]; then
+            echo "KUBE_CONFIG is not set"
+            exit 1
+          fi
+          printf '%s' '${{ secrets.KUBE_CONFIG }}' | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+          kubectl version --client
+
+      - name: Update image
+        run: |
+          kubectl -n py-wallet-dev set image deployment/py-wallet \
+            py-wallet=ghcr.io/${{ github.repository }}:${{ github.sha }}
+
+      - name: Wait rollout
+        run: | 
+          kubectl -n py-wallet-dev rollout status \
+            deployment/py-wallet --timeout=180s
+
+
+      - name: Smoke test
+        run: |
+          sleep 5
+          if ! curl -fsS https://py-wallet.45-132-75-118.sslip.io/health; then
+            echo "Smoke test failed, rolling back"
+            kubectl -n py-wallet-dev rollout undo deployment/py-wallet
+            kubectl -n py-wallet-dev rollout status deployment/py-wallet --timeout=120s
+            exit 1
+          fi
+
+      - name: Show deployment status
+        if: always()
+        run: |
+          kubectl -n py-wallet-dev get deployment py-wallet -o wide
+          kubectl -n py-wallet-dev get pods -l app=py-wallet
+          kubectl -n py-wallet-dev describe deployment py-wallet | tail -n 50
+
 
   notify:
     runs-on: ubuntu-latest
@@ -191,7 +221,7 @@ jobs:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           message: |
-            ${{ contains(needs.*.result, 'failure') && '❌ FAILED' || '✅ SUCCESS'}}
+            ${{ (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) && '❌ FAILED' || '✅ SUCCESS' }}
 
             Repo: ${{ github.repository }}
             Branch: ${{ github.ref_name}}

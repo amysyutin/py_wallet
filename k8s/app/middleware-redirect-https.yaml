@@ -3,6 +3,10 @@ kind: Middleware
 metadata:
   name: redirect-https
 spec:
+  rateLimit:
+    average: 100
+    period: 1s
+    burst: 50
   redirectScheme:
     scheme: https
     permanent: true
