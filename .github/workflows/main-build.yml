@@ -193,7 +193,7 @@ jobs:
       - name: Smoke test
         run: |
           sleep 5
-          if ! curl -fsS https://py-wallet.45-132-75-118.sslip.io/health; then
+          if ! curl -fsS -k https://py-wallet.45-132-75-118.sslip.io/health; then
             echo "Smoke test failed, rolling back"
             kubectl -n py-wallet-dev rollout undo deployment/py-wallet
             kubectl -n py-wallet-dev rollout status deployment/py-wallet --timeout=120s
