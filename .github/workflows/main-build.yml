@@ -17,6 +17,27 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: wallet
+          POSTGRES_PASSWORD: wallet
+          POSTGRES_DB: wallet
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U wallet -d wallet"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://wallet:wallet@localhost:5432/wallet
+      JWT_SECRET: ci-test-secret
+      ACCESS_TOKEN_TTL_MIN: "60"
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -26,10 +47,15 @@ jobs:
         with:
           python-version: "3.12"
           cache: "pip"
-          cache-dependency-path: "requirements.txt"
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
 
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
+
+      - name: Run database migrations
+        run: alembic upgrade head
 
       - name: Lint
         run: ruff check .
@@ -38,7 +64,7 @@ jobs:
         run: black --check .
 
       - name: Run tests
-        run: pytest -m "not slow and not e2e" -v --tb=short
+        run: python -m pytest -m "not slow and not e2e" -v --tb=short
 
   docker-build:
     needs: test
@@ -103,6 +129,9 @@ jobs:
       - name: Start stack
         run: docker compose -f docker-compose.ci.yml up -d
 
+      - name: Run database migrations
+        run: docker compose -f docker-compose.ci.yml exec -T app alembic upgrade head  
+
       - name: Wait for app health
         run: |
           for i in $(seq 1 30); do
@@ -124,6 +153,14 @@ jobs:
           echo ""
           echo "--- GET /health ---"
           curl -fsS http://127.0.0.1:8000/health
+          echo ""
+          echo "--- POST /auth/register ---"
+          curl -fsS -X POST http://127.0.0.1:8000/auth/register \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"ci@example.com","password":"password12"}'
+          echo ""
+          echo "--- GET /wallets (expect 403 without token) ---"
+          curl -fsS -o /dev/null -w "HTTP %{http_code}\n" http://127.0.0.1:8000/wallets || true
 
       - name: Show logs on failure
         if: failure()
@@ -183,6 +220,18 @@ jobs:
         run: |
           kubectl -n py-wallet-dev set image deployment/py-wallet \
             py-wallet=ghcr.io/${{ github.repository }}:${{ github.sha }}
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Run database migrations (Job)
+        run: |
+          IMAGE=ghcr.io/${{ github.repository }}:${{ github.sha }}
+          kubectl -n py-wallet-dev delete job py-wallet-migrate --ignore-not-found=true
+          sed "s|IMAGE_PLACEHOLDER|${IMAGE}|g" k8s/app/migrate-job.yaml | kubectl apply -f -
+          kubectl -n py-wallet-dev wait --for=condition=complete \
+            job/py-wallet-migrate --timeout=180s
+          kubectl -n py-wallet-dev logs job/py-wallet-migrate      
 
       - name: Wait rollout
         run: | 

@@ -19,3 +19,4 @@ resources:
   - certificate.yaml
   - middleware-redirect-https.yaml
   - configmap.yaml
+  - migrate-job.yaml

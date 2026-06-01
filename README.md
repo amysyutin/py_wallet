@@ -4,14 +4,17 @@ FastAPI service for aggregating and monitoring a crypto portfolio.
 
 The app collects balances from EVM networks and Binance, then calculates the USD value of the tracked assets. Supported EVM networks are Ethereum Mainnet, Base, BNB Chain, Arbitrum, and Linea. Binance support covers Spot, Simple Earn Flexible, and Simple Earn Locked positions.
 
+Production runs on a self-hosted **k3s** cluster. Local development uses Docker Compose. Deployment is automated via GitHub Actions with `kubectl` against the cluster.
+
 ## Features
 
 - EVM portfolio aggregation across multiple chains.
 - Native token, USDT, and USDC balance tracking.
 - Binance Spot and Earn balance aggregation.
 - USD valuation through Binance public prices and CoinGecko native token prices.
-- Docker-based local, CI, and production workflows.
-- CI checks for linting, formatting, tests, and Docker Compose smoke tests.
+- Local development through Docker Compose.
+- Production deployment on Kubernetes (k3s) with rolling updates, healthchecks, TLS, and BasicAuth.
+- CI/CD pipeline with build-once flow, smoke tests, and auto-rollback on failure.
 - Secret-safe application logging with value redaction.
 
 ## Project Structure
@@ -38,13 +41,27 @@ py_wallet/
 │   └── sources/
 │       └── evm.py                    # Manual EVM debugging script
 ├── tests/
+├── k8s/
+│   ├── cluster/                      # Cluster-level resources (Namespace, RBAC, ClusterIssuers)
+│   │   ├── namespace.yaml
+│   │   ├── rbac-ci-deployer.yaml
+│   │   ├── clusterissuer-staging.yaml
+│   │   ├── clusterissuer-prod.yaml
+│   │   └── kustomization.yaml
+│   └── app/                          # Application-level resources
+│       ├── deployment.yaml
+│       ├── service.yaml
+│       ├── ingress.yaml
+│       ├── certificate.yaml
+│       ├── middleware-redirect-https.yaml
+│       ├── configmap.yaml
+│       └── kustomization.yaml
 ├── .github/workflows/
 │   ├── ci.yml                        # PR checks
-│   └── main-build.yml                # Main branch build, publish, deploy
+│   └── main-build.yml                # Main branch build, publish, k8s deploy
 ├── Dockerfile
-├── docker-compose.yml
-├── docker-compose.ci.yml
-├── docker-compose.prod.yml
+├── docker-compose.yml                # Local development
+├── docker-compose.ci.yml             # CI smoke tests
 ├── requirements.txt
 ├── requirements-dev.txt
 ├── .env.example
@@ -62,35 +79,40 @@ py_wallet/
 
 If `/assets` is called without the `address` query parameter, the app uses `EVM1_ADDRESS` from the environment.
 
-Interactive API documentation is available after startup:
+Interactive API documentation:
 
-- Swagger UI: `http://127.0.0.1:8000/docs`
-- ReDoc: `http://127.0.0.1:8000/redoc`
+- Swagger UI: `/docs`
+- ReDoc: `/redoc`
+
+In production these endpoints sit behind Traefik Ingress with TLS and BasicAuth. Locally they are reachable on `http://127.0.0.1:8000`.
 
 ## Environment Variables
 
-Create a local `.env` file from the example:
+In Kubernetes, runtime configuration is split into a `ConfigMap` (non-sensitive parameters) and a `Secret` (credentials and personal data). Locally, both are read from a single `.env` file.
+
+| Variable | Source in K8s | Description |
+| --- | --- | --- |
+| `BINANCE_API_KEY` | Secret `py-wallet-secrets` | Binance API key used for signed account requests. |
+| `BINANCE_SECRET` | Secret `py-wallet-secrets` | Binance API secret used for request signing. |
+| `EVM1_ADDRESS` | Secret `py-wallet-secrets` | Default EVM wallet address used by `/assets`. |
+| `RPC_URL_MAINNET` | ConfigMap `py-wallet-config` | Ethereum Mainnet RPC URL (public node). |
+| `RPC_URL_BASE` | ConfigMap `py-wallet-config` | Base RPC URL. |
+| `RPC_URL_BNB` | ConfigMap `py-wallet-config` | BNB Chain RPC URL. |
+| `RPC_URL_ARB` | ConfigMap `py-wallet-config` | Arbitrum RPC URL. |
+| `RPC_URL_LINEA` | ConfigMap `py-wallet-config` | Linea RPC URL. |
+| `LOG_LEVEL` | ConfigMap `py-wallet-config` | Logging level (default `INFO`). |
+
+For local development, copy the example file:
 
 ```bash
 cp .env.example .env
 ```
 
-| Variable | Description |
-| --- | --- |
-| `BINANCE_API_KEY` | Binance API key used for signed account requests. |
-| `BINANCE_SECRET` | Binance API secret used for request signing. |
-| `EVM1_ADDRESS` | Default EVM wallet address used by `/assets`. |
-| `RPC_URL_MAINNET` | Ethereum Mainnet RPC URL. |
-| `RPC_URL_BASE` | Base RPC URL. |
-| `RPC_URL_BNB` | BNB Chain RPC URL. |
-| `RPC_URL_ARB` | Arbitrum RPC URL. |
-| `RPC_URL_LINEA` | Linea RPC URL. |
-
 Do not commit `.env`. It is ignored by git.
 
 ## Running Locally
 
-### Docker
+### Docker Compose
 
 ```bash
 docker compose up --build -d
@@ -110,16 +132,67 @@ pip install -r requirements-dev.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-## Production
+## Deployment (Kubernetes)
 
-Production uses `docker-compose.prod.yml`, which pulls the published image from GHCR instead of building from local sources.
+Production runs on a self-hosted **k3s** cluster behind Traefik Ingress with Let's Encrypt TLS.
 
-```bash
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d
+### Architecture
+
+```
+GitHub Actions  ─── push image ───►  GHCR  ───── pull ─────►  k3s Pod
+       │                                                          ▲
+       └── kubectl set image ──────► Deployment ── ReplicaSet ────┘
+                                          │
+                                          └──► Service (ClusterIP)
+                                                    ▲
+                          Browser ─► Ingress (Traefik) ─► Service ─► Pod
+                                       │
+                                       ├── TLS (cert-manager + Let's Encrypt)
+                                       └── BasicAuth middleware
 ```
 
-The production compose file reads secrets from `/home/shared/cripto_secrets/.env`.
+### Initial Cluster Setup
+
+Cluster-level resources are managed via Kustomize:
+
+```bash
+kubectl apply -k k8s/cluster/
+```
+
+This creates:
+
+- Namespace `py-wallet-dev`
+- ServiceAccount `ci-deployer` with a restricted Role (read-only for most resources, `patch` on Deployments only)
+- ClusterIssuers for Let's Encrypt staging and production
+
+Secrets must be created manually on the cluster, not via Git:
+
+```bash
+kubectl -n py-wallet-dev create secret generic py-wallet-secrets \
+  --from-literal=BINANCE_API_KEY=... \
+  --from-literal=BINANCE_SECRET=... \
+  --from-literal=EVM1_ADDRESS=0x...
+```
+
+### Application Deployment
+
+```bash
+kubectl apply -k k8s/app/
+kubectl -n py-wallet-dev rollout status deployment/py-wallet
+```
+
+Routine image updates happen automatically via the `main-build.yml` GitHub Actions workflow.
+
+### Manual Rollout
+
+```bash
+# Update image to a specific commit:
+kubectl -n py-wallet-dev set image deployment/py-wallet \
+  py-wallet=ghcr.io/amysyutin/py_wallet:<sha>
+
+# Roll back to the previous revision:
+kubectl -n py-wallet-dev rollout undo deployment/py-wallet
+```
 
 ## Testing
 
@@ -152,36 +225,38 @@ The test suite is designed to run without external network calls or real secrets
 
 ## CI/CD
 
-There are two GitHub Actions workflows:
+Two GitHub Actions workflows:
 
 | Workflow | Trigger | Purpose |
 | --- | --- | --- |
 | `.github/workflows/ci.yml` | Pull request to `main` | Lint, format check, tests on Python 3.11 and 3.12, Docker Compose smoke test, Telegram notification on failure. |
-| `.github/workflows/main-build.yml` | Push to `main` | Tests, Docker image build, Compose smoke test, GHCR publish, production deploy, Telegram notification. |
+| `.github/workflows/main-build.yml` | Push to `main` | Tests, Docker image build, Compose smoke test, GHCR publish, Kubernetes deploy with auto-rollback, Telegram notification. |
 
 The main branch pipeline follows a build-once flow:
 
 ```text
-docker-build -> compose-smoke -> build-and-tag -> deploy
+test → docker-build → compose-smoke → build-and-tag → deploy → notify
 ```
 
-The Docker image is built once, saved as a GitHub artifact, smoke-tested, then tagged and pushed to GHCR.
+Steps:
 
-Compose smoke tests use dummy Binance and wallet values because they only verify startup, `/`, and `/health`. Real application secrets are not needed for those checks.
+1. **test** — ruff, black, pytest.
+2. **docker-build** — image is built once with tag `:<sha>` and saved as an artifact.
+3. **compose-smoke** — the same artifact is loaded and started via `docker-compose.ci.yml`; `/health` is checked.
+4. **build-and-tag** — image is pushed to GHCR as `ghcr.io/<repo>:<sha>` (immutable tag, no `:latest`).
+5. **deploy** — `kubectl set image` against the production Deployment, then `kubectl rollout status`, then a smoke test against the public Ingress. On failure the deploy is rolled back automatically (`kubectl rollout undo`).
+6. **notify** — Telegram message with SUCCESS / FAILED / CANCELLED status.
 
 ## GitHub Secrets
 
-The repository workflows use these GitHub secrets:
-
 | Secret | Used for |
 | --- | --- |
-| `DEPLOY_HOST` | Production SSH host. |
-| `DEPLOY_USER` | Production SSH user. |
-| `DEPLOY_SSH_KEY` | Production SSH private key. |
+| `KUBE_CONFIG` | Base64-encoded kubeconfig for the restricted `ci-deployer` ServiceAccount. |
 | `TELEGRAM_BOT_TOKEN` | Telegram notification bot token. |
 | `TELEGRAM_CHAT_ID` | Telegram notification chat ID. |
+| `GITHUB_TOKEN` | Automatically provided by GitHub Actions; used to push images to GHCR. |
 
-Runtime application secrets such as `BINANCE_API_KEY`, `BINANCE_SECRET`, and wallet/RPC values are expected in the deployment environment, not in CI smoke tests.
+Runtime application secrets (`BINANCE_API_KEY`, `BINANCE_SECRET`, wallet/RPC values) live inside the cluster as a Kubernetes `Secret` and are never present in CI.
 
 ## Logging And Secrets
 
@@ -194,6 +269,16 @@ Avoid logging raw API responses in production unless the payload is known to be 
 - Base image: `python:3.12-slim`
 - Runtime user: non-root `appuser`
 - Application port: `8000`
-- Production restart policy: `unless-stopped`
-- Production healthcheck: Python `urllib.request`
 - Registry image: `ghcr.io/amysyutin/py_wallet`
+- Tagging policy: immutable `:<sha>` only; `:latest` is not used in production.
+
+## Kubernetes Notes
+
+- Distribution: **k3s** (single-node)
+- Ingress controller: Traefik (bundled with k3s)
+- TLS: cert-manager + Let's Encrypt
+- Storage: not used yet (the service is stateless)
+- Cluster manifests: see `k8s/cluster/` and `k8s/app/`, applied via Kustomize
+- Deployment strategy: `RollingUpdate` with `maxSurge=50%`, `maxUnavailable=0%` (zero downtime)
+- Replicas: `2`
+- Probes: liveness and readiness on `/health`
