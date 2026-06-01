@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
 import app.db.models  # noqa: F401
+import app.routes as app_routes
 from app.core.config import settings
 from app.db.base import Base
 from app.db.session import get_session
@@ -75,12 +76,16 @@ def mock_full_prices():
 def setup_test_db():
     import asyncio
 
+    original_health_engine = app_routes.engine
+    app_routes.engine = test_engine
+
     async def _init():
         async with test_engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 
     asyncio.run(_init())
     yield
+    app_routes.engine = original_health_engine
     # dispose не вызываем через asyncio.run — иначе снова ломаем loop
 
 

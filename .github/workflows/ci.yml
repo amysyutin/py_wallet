@@ -19,6 +19,26 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.12", "3.11"]
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: wallet
+          POSTGRES_PASSWORD: wallet
+          POSTGRES_DB: wallet
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U wallet -d wallet"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://wallet:wallet@localhost:5432/wallet
+      JWT_SECRET: ci-test-secret
+      ACCESS_TOKEN_TTL_MIN: "60"
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
