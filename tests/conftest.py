@@ -1,4 +1,21 @@
+import os
+from collections.abc import AsyncGenerator
+
 import pytest
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.pool import NullPool
+
+import app.db.models  # noqa: F401
+from app.core.config import settings
+from app.db.base import Base
+from app.db.session import get_session
+from app.main import app
+
+TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", settings.database_url)
+
+# NullPool: новое соединение на каждый connect — без «залипания» на чужом loop
+test_engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
 
 
 def pytest_configure(config):
@@ -52,25 +69,6 @@ def mock_full_prices():
         "USDCUSDT": 1.0,
         "USDT": 1.0,
     }
-
-import os
-from collections.abc import AsyncGenerator
-
-import pytest
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.pool import NullPool
-
-from app.core.config import settings
-from app.db.base import Base
-import app.db.models  # noqa: F401
-from app.db.session import get_session
-from app.main import app
-
-TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", settings.database_url)
-
-# NullPool: новое соединение на каждый connect — без «залипания» на чужом loop
-test_engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
 
 
 @pytest.fixture(scope="session", autouse=True)

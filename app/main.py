@@ -1,7 +1,6 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from sqlalchemy import text
 
 from app.db.session import engine
 from app.routers.auth import router as auth_router

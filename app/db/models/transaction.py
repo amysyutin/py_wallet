@@ -26,7 +26,9 @@ if TYPE_CHECKING:
 class Transaction(Base):
     __tablename__ = "transactions"
     __table_args__ = (
-        UniqueConstraint("wallet_id", "tx_hash", "asset_id", name="uq_tx_wallet_hash_asset"),
+        UniqueConstraint(
+            "wallet_id", "tx_hash", "asset_id", name="uq_tx_wallet_hash_asset"
+        ),
         CheckConstraint("direction IN ('in','out')", name="ck_tx_direction"),
         Index("ix_transactions_wallet", "wallet_id"),
     )

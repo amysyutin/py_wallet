@@ -221,6 +221,18 @@ jobs:
           kubectl -n py-wallet-dev set image deployment/py-wallet \
             py-wallet=ghcr.io/${{ github.repository }}:${{ github.sha }}
 
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Run database migrations (Job)
+        run: |
+          IMAGE=ghcr.io/${{ github.repository }}:${{ github.sha }}
+          kubectl -n py-wallet-dev delete job py-wallet-migrate --ignore-not-found=true
+          sed "s|IMAGE_PLACEHOLDER|${IMAGE}|g" k8s/app/migrate-job.yaml | kubectl apply -f -
+          kubectl -n py-wallet-dev wait --for=condition=complete \
+            job/py-wallet-migrate --timeout=180s
+          kubectl -n py-wallet-dev logs job/py-wallet-migrate      
+
       - name: Wait rollout
         run: | 
           kubectl -n py-wallet-dev rollout status \

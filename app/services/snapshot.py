@@ -1,4 +1,3 @@
-from app.config import CHAIN_RPC, NATIVE_ETH_ADDRESS, TOKENS_BY_CHAIN
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -6,7 +5,7 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import NATIVE_ETH_ADDRESS, TOKENS_BY_CHAIN
+from app.config import CHAIN_RPC, NATIVE_ETH_ADDRESS, TOKENS_BY_CHAIN
 from app.connectors.price.coingecko import get_native_price_usd_cached
 from app.db.models.asset import Asset
 from app.db.models.balance_snapshot import BalanceSnapshot
@@ -47,15 +46,21 @@ def collect_wallet_balances(chain: str, address: str) -> list[BalanceItem]:
     if cs.usdt_amount > 0 and tokens_cfg.get("USDT"):
         items.append(
             BalanceItem(
-                "USDT", chain, tokens_cfg["USDT"],
-                Decimal(str(cs.usdt_amount)), Decimal(str(cs.usdt_amount)),
+                "USDT",
+                chain,
+                tokens_cfg["USDT"],
+                Decimal(str(cs.usdt_amount)),
+                Decimal(str(cs.usdt_amount)),
             )
         )
     if cs.usdc_amount > 0 and tokens_cfg.get("USDC"):
         items.append(
             BalanceItem(
-                "USDC", chain, tokens_cfg["USDC"],
-                Decimal(str(cs.usdc_amount)), Decimal(str(cs.usdc_amount)),
+                "USDC",
+                chain,
+                tokens_cfg["USDC"],
+                Decimal(str(cs.usdc_amount)),
+                Decimal(str(cs.usdc_amount)),
             )
         )
 
@@ -63,8 +68,11 @@ def collect_wallet_balances(chain: str, address: str) -> list[BalanceItem]:
         if t.amount > 0:
             items.append(
                 BalanceItem(
-                    t.symbol, chain, f"{chain}:{t.symbol}",
-                    Decimal(str(t.amount)), Decimal(str(t.usd)),
+                    t.symbol,
+                    chain,
+                    f"{chain}:{t.symbol}",
+                    Decimal(str(t.amount)),
+                    Decimal(str(t.usd)),
                 )
             )
 

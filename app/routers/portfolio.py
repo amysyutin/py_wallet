@@ -27,9 +27,7 @@ async def portfolio_history(
     days: int = Query(30, ge=1, le=365),
 ) -> PortfolioHistory:
     wallet = await session.scalar(
-        select(Wallet).where(
-            Wallet.id == wallet_id, Wallet.user_id == current_user.id
-        )
+        select(Wallet).where(Wallet.id == wallet_id, Wallet.user_id == current_user.id)
     )
     if wallet is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Wallet not found")
@@ -67,9 +65,9 @@ async def portfolio_summary(
     ) or Decimal("0")
 
     wallets_count = await session.scalar(
-        select(func.count()).select_from(Wallet).where(
-            Wallet.user_id == current_user.id
-        )
+        select(func.count())
+        .select_from(Wallet)
+        .where(Wallet.user_id == current_user.id)
     )
 
     rows = await session.execute(

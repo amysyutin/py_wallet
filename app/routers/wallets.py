@@ -32,8 +32,6 @@ async def list_wallets(
     session: SessionDep,
 ) -> list[Wallet]:
     result = await session.scalars(
-        select(Wallet)
-        .where(Wallet.user_id == current_user.id)
-        .order_by(Wallet.id)
+        select(Wallet).where(Wallet.user_id == current_user.id).order_by(Wallet.id)
     )
     return list(result)
