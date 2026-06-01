@@ -1,14 +1,25 @@
-from fastapi import HTTPException
+from fastapi import HTTPException, status
+from sqlalchemy import text
+
 from fastapi.routing import APIRouter
 from app.config import ADDRESS_EVM
 from app.services.portfolio import summarize_all
 from app.services.binance_portfolio import summarize_binance_usdt
+from app.db.session import engine
 
 router = APIRouter()
 
 
 @router.get("/health")
 async def health():
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="database unavailable",
+        )
     return {"status": "healthy"}
 
 
