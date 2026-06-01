@@ -4,10 +4,6 @@ metadata:
   name: py-wallet
   annotations:
     traefik.ingress.kubernetes.io/router.middlewares: py-wallet-dev-redirect-https@kubernetescrd
-  labels:
-    app.kubernetes.io/name: py-wallet
-    app.kubernetes.io/part-of: py-wallet
-    app.kubernetes.io/environment: dev
 spec:
   ingressClassName: traefik
   tls:
