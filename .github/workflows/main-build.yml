@@ -198,68 +198,42 @@ jobs:
           docker tag py_wallet:${SHA} ${IMAGE}:${SHA}
           docker push ${IMAGE}:${SHA}
 
-  deploy:
+
+  bump-gitops:
     needs: [build-and-tag]
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
     steps:
-      - uses: azure/setup-kubectl@v3
-        with:
-          version: v1.33.0
-      - name: Configure kubeconfig
-        run: |
-          mkdir -p $HOME/.kube
-          if [ -z "${{ secrets.KUBE_CONFIG }}" ]; then
-            echo "KUBE_CONFIG is not set"
-            exit 1
-          fi
-          printf '%s' '${{ secrets.KUBE_CONFIG }}' | base64 -d > $HOME/.kube/config
-          chmod 600 $HOME/.kube/config
-          kubectl version --client
-
-      - name: Update image
-        run: |
-          kubectl -n py-wallet-dev set image deployment/py-wallet \
-            py-wallet=ghcr.io/${{ github.repository }}:${{ github.sha }}
-
-      - name: Checkout repository
+      - name: Checkout infra repo
         uses: actions/checkout@v6
+        with:
+          repository: amysyutin/py_wallet-infra
+          ref: main
+          token: ${{ secrets.INFRA_REPO_TOKEN }}
+          path: infra
 
-      - name: Run database migrations (Job)
+      - name: Setup kustomize
+        uses: imranismail/setup-kustomize@v2
+
+      - name: Bump image tag in infra repo
         run: |
-          IMAGE=ghcr.io/${{ github.repository }}:${{ github.sha }}
-          kubectl -n py-wallet-dev delete job py-wallet-migrate --ignore-not-found=true
-          sed "s|IMAGE_PLACEHOLDER|${IMAGE}|g" k8s/app/migrate-job.yaml | kubectl apply -f -
-          kubectl -n py-wallet-dev wait --for=condition=complete \
-            job/py-wallet-migrate --timeout=180s
-          kubectl -n py-wallet-dev logs job/py-wallet-migrate      
+          cd infra/manifests/app
+          kustomize edit set image ghcr.io/amysyutin/py_wallet=ghcr.io/${{ github.repository }}:${{ github.sha }}
+          echo "Updated image tag to ${{ github.sha }}"
 
-      - name: Wait rollout
-        run: | 
-          kubectl -n py-wallet-dev rollout status \
-            deployment/py-wallet --timeout=180s
-
-
-      - name: Smoke test
+      - name: Commit and push
         run: |
-          sleep 5
-          if ! curl -fsS -k https://py-wallet.45-132-75-118.sslip.io/health; then
-            echo "Smoke test failed, rolling back"
-            kubectl -n py-wallet-dev rollout undo deployment/py-wallet
-            kubectl -n py-wallet-dev rollout status deployment/py-wallet --timeout=120s
-            exit 1
-          fi
-
-      - name: Show deployment status
-        if: always()
-        run: |
-          kubectl -n py-wallet-dev get deployment py-wallet -o wide
-          kubectl -n py-wallet-dev get pods -l app=py-wallet
-          kubectl -n py-wallet-dev describe deployment py-wallet | tail -n 50
-
+          cd infra
+          git config user.name "deploybot"
+          git config user.email "deploybot@users.noreply.github.com"
+          git add manifests/app/kustomization.yaml
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "deploy: bump py-wallet image to ${{ github.sha }}"
+          git push origin main
 
   notify:
     runs-on: ubuntu-latest
-    needs: [deploy, build-and-tag]
+    needs: [build-and-tag, bump-gitops]
     if: always()
     timeout-minutes: 2
 
