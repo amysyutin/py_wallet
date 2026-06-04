@@ -1,11 +1,11 @@
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.normalization import normalize_email
 from app.core.security import hash_password
 from app.db.models.user import User, UserRole
 from app.services.admin_promote import (
     PromoteAdminStatus,
-    normalize_email,
     promote_admin_by_email,
 )
 

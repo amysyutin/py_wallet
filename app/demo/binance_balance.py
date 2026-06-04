@@ -29,5 +29,5 @@ DEMO_BINANCE_BALANCE: dict = {
             "source": "spot",
         },
     ],
-    "total_usdt": 12345.67,
+    "total_usdt": 52234.56,
 }
