@@ -1,0 +1,74 @@
+Исправь email normalization.
+
+Сейчас `normalize_email()` реализована в `app/services/admin_promote.py`, но используется только в `promote_admin_by_email`.
+
+Нужно:
+1. Вынести `normalize_email(email: str) -> str` в общий модуль, например:
+   - `app/core/normalization.py`
+   или
+   - `app/core/security.py`, если не хочешь новый файл.
+
+2. Использовать `normalize_email()` в:
+   - `POST /auth/register`
+   - `POST /auth/login`
+   - `promote_admin_by_email(session, email)`
+
+3. В `app/routers/auth.py`:
+   - при register сохранять `email=normalize_email(payload.email)`;
+   - при проверке duplicate искать по normalized email;
+   - при login искать по normalized email.
+
+4. Обновить `app/services/admin_promote.py`, чтобы он импортировал общую функцию, а не держал локальную.
+
+5. Добавить тесты:
+   - register сохраняет email в lower-case;
+   - login работает с email в другом регистре;
+   - promote-admin работает с email в другом регистре для пользователя, созданного через register.
+
+
+Приведи auth status codes к production-like модели:
+
+- нет Authorization header -> 401
+- невалидный Bearer token -> 401
+- валидный user без admin role -> 403
+- admin -> 200
+
+Сейчас `HTTPBearer(auto_error=True)` возвращает 403 до попадания в `get_current_user`.
+
+Нужно:
+1. В `app/deps.py` заменить:
+
+```python
+bearer_scheme = HTTPBearer(auto_error=True)   
+
+
+
+
+---
+
+### 3. Demo balance payload внутренне не сходится
+
+В demo payload:
+
+```text
+BTC 42000 + ETH 9000 + USDT 1234.56 = 52234.56
+
+
+Исправь DEMO_BINANCE_BALANCE, чтобы `total_usdt` совпадал с суммой `usd` по assets.
+
+Сейчас assets дают сумму:
+
+42000.0 + 9000.0 + 1234.56 = 52234.56
+
+Нужно:
+- либо поставить `"total_usdt": 52234.56`;
+- либо изменить mock assets так, чтобы сумма совпадала с `12345.67`.
+
+Добавить тест в `tests/test_api.py`:
+
+```python
+def test_demo_binance_balance_total_matches_assets():
+    response = client.get("/demo/binance/balance")
+    data = response.json()
+    expected_total = sum(asset["usd"] for asset in data["assets"])
+    assert data["total_usdt"] == expected_total
