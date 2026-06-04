@@ -10,18 +10,20 @@ from app.db.session import get_session
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
-bearer_scheme = HTTPBearer(auto_error=True)
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
     session: SessionDep,
-    creds: Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)],
+    creds: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
 ) -> User:
     credentials_exc = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    if creds is None:
+        raise credentials_exc
     sub = decode_access_token(creds.credentials)
     if sub is None:
         raise credentials_exc

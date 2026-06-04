@@ -102,12 +102,19 @@ def test_demo_binance_balance():
     assert response.status_code == 200
     data = response.json()
     assert data["source"] == "demo"
-    assert data["total_usdt"] == 12345.67
+    assert data["total_usdt"] == 52234.56
     assert len(data["assets"]) >= 1
     assert all(
         a.get("source") in ("spot", "earn_flexible", "earn_loked")
         for a in data["assets"]
     )
+
+
+def test_demo_binance_balance_total_matches_assets():
+    response = client.get("/demo/binance/balance")
+    data = response.json()
+    expected_total = sum(asset["usd"] for asset in data["assets"])
+    assert data["total_usdt"] == expected_total
 
 
 # ─── Несуществующий эндпоинт ────────────────────────────────────────────────

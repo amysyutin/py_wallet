@@ -1,6 +1,9 @@
 from unittest.mock import patch
 from decimal import Decimal
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.services.admin_promote import PromoteAdminStatus, promote_admin_by_email
 
 
 async def test_register_and_me(client: AsyncClient):
@@ -22,10 +25,61 @@ async def test_register_and_me(client: AsyncClient):
     assert me.json()["email"] == "u1@example.com"
 
 
+async def test_register_saves_email_lowercase(client: AsyncClient):
+    r = await client.post(
+        "/auth/register",
+        json={"email": "MixedCase@Example.COM", "password": "password12"},
+    )
+    assert r.status_code == 201
+    assert r.json()["email"] == "mixedcase@example.com"
+
+
+async def test_login_accepts_email_with_different_case(client: AsyncClient):
+    await client.post(
+        "/auth/register",
+        json={"email": "case-login@example.com", "password": "password12"},
+    )
+    login = await client.post(
+        "/auth/login",
+        json={"email": "CASE-LOGIN@Example.COM", "password": "password12"},
+    )
+    assert login.status_code == 200
+    assert login.json()["access_token"]
+
+
+async def test_promote_admin_accepts_registered_email_with_different_case(
+    client: AsyncClient, db_session: AsyncSession
+):
+    await client.post(
+        "/auth/register",
+        json={"email": "promote-registered@example.com", "password": "password12"},
+    )
+    result = await promote_admin_by_email(
+        db_session,
+        "Promote-Registered@Example.COM",
+    )
+    assert result.status == PromoteAdminStatus.promoted
+
+
 async def test_register_duplicate_409(client: AsyncClient):
     payload = {"email": "dup@example.com", "password": "password12"}
     assert (await client.post("/auth/register", json=payload)).status_code == 201
     assert (await client.post("/auth/register", json=payload)).status_code == 409
+
+
+async def test_register_duplicate_409_with_different_case(client: AsyncClient):
+    assert (
+        await client.post(
+            "/auth/register",
+            json={"email": "dupcase@example.com", "password": "password12"},
+        )
+    ).status_code == 201
+    assert (
+        await client.post(
+            "/auth/register",
+            json={"email": "DupCase@Example.COM", "password": "password12"},
+        )
+    ).status_code == 409
 
 
 async def test_wallets_create_and_list(client: AsyncClient, auth_headers: dict):
@@ -125,7 +179,15 @@ async def test_register_me_includes_role_user(client: AsyncClient):
 
 async def test_binance_balance_unauthorized(client: AsyncClient):
     r = await client.get("/binance/balance")
-    assert r.status_code == 403
+    assert r.status_code == 401
+
+
+async def test_binance_balance_invalid_bearer_token(client: AsyncClient):
+    r = await client.get(
+        "/binance/balance",
+        headers={"Authorization": "Bearer invalid-token"},
+    )
+    assert r.status_code == 401
 
 
 async def test_binance_balance_forbidden_for_user(

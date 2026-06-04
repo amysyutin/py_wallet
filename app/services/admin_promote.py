@@ -4,6 +4,7 @@ from enum import Enum
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.normalization import normalize_email
 from app.db.models.user import User, UserRole
 
 
@@ -18,10 +19,6 @@ class PromoteAdminResult:
     status: PromoteAdminStatus
     email: str
     user_id: int | None = None
-
-
-def normalize_email(email: str) -> str:
-    return email.strip().lower()
 
 
 async def promote_admin_by_email(
