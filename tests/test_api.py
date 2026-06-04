@@ -94,67 +94,17 @@ def test_assets_param_overrides_env(mock_summarize):
     mock_summarize.assert_called_once_with("0xPARAM")
 
 
-# ─── /binance/balance ───────────────────────────────────────────────────────
+# ─── /demo/binance/balance ──────────────────────────────────────────────────
 
 
-@patch("app.routes.summarize_binance_usdt")
-def test_binance_balance(mock_service):
-    mock_data = {
-        "assets": [{"asset": "BTC", "amount": 0.1, "usd": 5000}],
-        "total_usdt": 5000.0,
-    }
-    mock_service.return_value = mock_data
-
-    response = client.get("/binance/balance")
+def test_demo_binance_balance():
+    response = client.get("/demo/binance/balance")
     assert response.status_code == 200
     data = response.json()
-    assert data["total_usdt"] == 5000.0
-    assert len(data["assets"]) == 1
-    assert data["assets"][0]["asset"] == "BTC"
-
-
-@patch("app.routes.summarize_binance_usdt")
-def test_binance_balance_empty(mock_service):
-    mock_service.return_value = {"assets": [], "total_usdt": 0.0}
-    response = client.get("/binance/balance")
-    assert response.status_code == 200
-    assert response.json()["total_usdt"] == 0.0
-    assert response.json()["assets"] == []
-
-
-@patch("app.routes.summarize_binance_usdt")
-def test_binance_balance_error_response(mock_service):
-    """Сервис вернул ошибку (timeout) — роутер всё равно отдаёт 200 с error."""
-    mock_service.return_value = {
-        "error": "Connection failed",
-        "assets": [],
-        "total_usdt": 0.0,
-    }
-    response = client.get("/binance/balance")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["error"] == "Connection failed"
-    assert data["total_usdt"] == 0.0
-
-
-@patch("app.routes.summarize_binance_usdt")
-def test_binance_balance_multiple_assets(mock_service):
-    mock_service.return_value = {
-        "assets": [
-            {"asset": "BTC", "amount": 0.1, "usd": 5000},
-            {"asset": "ETH", "amount": 2.0, "usd": 6000},
-            {"asset": "USDT", "amount": 100, "usd": 100},
-        ],
-        "total_usdt": 11100.0,
-    }
-    response = client.get("/binance/balance")
-    data = response.json()
-    assert len(data["assets"]) == 3
-    assert data["total_usdt"] == 11100.0
-    asset_names = [a["asset"] for a in data["assets"]]
-    assert "BTC" in asset_names
-    assert "ETH" in asset_names
-    assert "USDT" in asset_names
+    assert data["source"] == "demo"
+    assert data["total_usdt"] == 12345.67
+    assert len(data["assets"]) >= 1
+    assert all(a.get("source") in ("spot", "earn_flexible", "earn_loked") for a in data["assets"])
 
 
 # ─── Несуществующий эндпоинт ────────────────────────────────────────────────

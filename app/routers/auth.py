@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
 from app.core.security import create_access_token, hash_password, verify_password
-from app.db.models.user import User
+from app.db.models.user import User, UserRole
 from app.deps import CurrentUser, SessionDep
 from app.schemas.auth import Token, UserLogin, UserRead, UserRegister
 
@@ -16,7 +16,11 @@ async def register(payload: UserRegister, session: SessionDep) -> User:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Email already registered"
         )
-    user = User(email=payload.email, auth_hash=hash_password(payload.password))
+    user = User(
+        email=payload.email,
+        auth_hash=hash_password(payload.password),
+        role=UserRole.user,
+    )
     session.add(user)
     await session.commit()
     await session.refresh(user)

@@ -3,6 +3,8 @@ from sqlalchemy import text
 
 from fastapi.routing import APIRouter
 from app.config import ADDRESS_EVM
+from app.demo.binance_balance import DEMO_BINANCE_BALANCE
+from app.deps import AdminUser
 from app.services.portfolio import summarize_all
 from app.services.binance_portfolio import summarize_binance_usdt
 from app.db.session import engine
@@ -35,6 +37,11 @@ async def get_assets(address: str = ""):
     return summary.model_dump()
 
 
-@router.get("/binance/balance")
-async def binance_balance():
+@router.get("/demo/binance/balance", tags=["demo"])
+async def demo_binance_balance():
+    return DEMO_BINANCE_BALANCE
+
+
+@router.get("/binance/balance", tags=["binance"])
+async def binance_balance(_admin: AdminUser):
     return summarize_binance_usdt()

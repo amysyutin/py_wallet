@@ -42,7 +42,9 @@ py_wallet/
 │   │   ├── snapshots.py              # Balance snapshot creation
 │   │   └── portfolio.py              # Portfolio history and summary
 │   ├── connectors/                   # RPC, ERC-20, Binance, and CoinGecko clients
-│   ├── services/                     # Portfolio and snapshot aggregation
+│   ├── services/                     # Portfolio, snapshot, and admin promote logic
+│   ├── demo/                         # Public demo payloads (no external API calls)
+│   ├── cli/                          # Operational CLI (promote-admin)
 │   └── routes.py                     # Health and legacy aggregation endpoints
 ├── alembic/                          # Database migrations
 ├── tests/
@@ -69,18 +71,24 @@ Public endpoints:
 | `POST` | `/auth/register` | Create a user account. |
 | `POST` | `/auth/login` | Return a JWT bearer token. |
 | `GET` | `/assets?address=0x...` | EVM portfolio summary for the provided address. |
-| `GET` | `/binance/balance` | Binance Spot and Earn portfolio summary. |
+| `GET` | `/demo/binance/balance` | Demo Binance portfolio (`source: demo`, fixed mock data). |
 
 Authenticated endpoints require `Authorization: Bearer <token>`:
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `GET` | `/auth/me` | Return the authenticated user. |
+| `GET` | `/auth/me` | Return the authenticated user (includes `role`). |
 | `POST` | `/wallets` | Add a wallet with `label`, `address`, and `chain_type`. |
 | `GET` | `/wallets` | List the authenticated user's wallets. |
 | `POST` | `/snapshot` | Create a snapshot for one wallet or all supported EVM wallets. |
 | `GET` | `/portfolio?wallet_id=<id>&days=30` | Return snapshot history for a wallet. |
 | `GET` | `/portfolio/summary` | Return total USD value and top assets from the latest wallet snapshots. |
+
+Admin endpoints require a JWT for a user with `role=admin` in the database:
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/binance/balance` | Real Binance Spot and Earn portfolio summary (signed API). |
 
 Supported `chain_type` values for wallets are `mainnet`, `base`, `bnb`,
 `arbitrum`, `linea`, and `binance`. Snapshot collection currently supports EVM
@@ -88,6 +96,26 @@ wallets only.
 
 If `/assets` is called without the `address` query parameter, the app uses
 `EVM1_ADDRESS` from the environment.
+
+Use `/demo/binance/balance` on public demos and frontends. Do not expose
+`/binance/balance` without admin authentication.
+
+### Admin access
+
+New registrations always receive `role=user`. To grant admin after a user
+registers:
+
+```bash
+python -m app.cli promote-admin user@example.com
+```
+
+Exit codes: `0` promoted, `1` user not found, `2` already admin.
+
+Manual SQL fallback:
+
+```sql
+UPDATE users SET role = 'admin' WHERE email = 'user@example.com';
+```
 
 Interactive API documentation:
 

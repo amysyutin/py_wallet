@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.db.base import Base
 from app.db.session import get_session
 from app.main import app
+from app.services.admin_promote import PromoteAdminStatus, promote_admin_by_email
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", settings.database_url)
 
@@ -81,6 +82,7 @@ def setup_test_db():
 
     async def _init():
         async with test_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
             await conn.run_sync(Base.metadata.create_all)
 
     asyncio.run(_init())
@@ -90,22 +92,26 @@ def setup_test_db():
 
 
 @pytest.fixture
-async def client() -> AsyncGenerator[AsyncClient, None]:
+async def db_session() -> AsyncGenerator[AsyncSession, None]:
     async with test_engine.connect() as conn:
         trans = await conn.begin()
         session = AsyncSession(bind=conn, expire_on_commit=False)
-
-        async def override_get_session() -> AsyncGenerator[AsyncSession, None]:
-            yield session
-
-        app.dependency_overrides[get_session] = override_get_session
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            yield ac
-
-        app.dependency_overrides.clear()
+        yield session
         await session.close()
         await trans.rollback()
+
+
+@pytest.fixture
+async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+    async def override_get_session() -> AsyncGenerator[AsyncSession, None]:
+        yield db_session
+
+    app.dependency_overrides[get_session] = override_get_session
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
+
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture
@@ -113,6 +119,20 @@ async def auth_headers(client: AsyncClient) -> dict[str, str]:
     email = "test@example.com"
     password = "testpass123"
     await client.post("/auth/register", json={"email": email, "password": password})
+    r = await client.post("/auth/login", json={"email": email, "password": password})
+    token = r.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+async def admin_headers(
+    client: AsyncClient, db_session: AsyncSession
+) -> dict[str, str]:
+    email = "admin@example.com"
+    password = "testpass123"
+    await client.post("/auth/register", json={"email": email, "password": password})
+    result = await promote_admin_by_email(db_session, email)
+    assert result.status == PromoteAdminStatus.promoted
     r = await client.post("/auth/login", json={"email": email, "password": password})
     token = r.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
