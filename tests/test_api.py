@@ -104,7 +104,10 @@ def test_demo_binance_balance():
     assert data["source"] == "demo"
     assert data["total_usdt"] == 12345.67
     assert len(data["assets"]) >= 1
-    assert all(a.get("source") in ("spot", "earn_flexible", "earn_loked") for a in data["assets"])
+    assert all(
+        a.get("source") in ("spot", "earn_flexible", "earn_loked")
+        for a in data["assets"]
+    )
 
 
 # ─── Несуществующий эндпоинт ────────────────────────────────────────────────

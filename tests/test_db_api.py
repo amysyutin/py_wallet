@@ -150,7 +150,9 @@ async def test_binance_balance_ok_for_admin(
 
 
 @patch("app.routes.summarize_binance_usdt")
-async def test_binance_balance_empty(mock_service, client: AsyncClient, admin_headers: dict):
+async def test_binance_balance_empty(
+    mock_service, client: AsyncClient, admin_headers: dict
+):
     mock_service.return_value = {"assets": [], "total_usdt": 0.0}
     r = await client.get("/binance/balance", headers=admin_headers)
     assert r.status_code == 200
