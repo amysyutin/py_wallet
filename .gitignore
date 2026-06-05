@@ -1,4 +1,6 @@
 .env
+pip-audit-report.json
+bandit-report.json
 __pycache__/
 .pytest_cache/
 .vscode/

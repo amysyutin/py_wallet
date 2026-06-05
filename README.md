@@ -187,6 +187,49 @@ repository (Kubernetes Secret, not committed to Git).
 **Secret rotation:** changing `JWT_SECRET` invalidates all existing access tokens.
 Users must log in again. Refresh tokens are not implemented yet; for this
 project a hard cutover (change secret, everyone re-authenticates) is sufficient.
+For production rotation steps (future), see `amysyutin/py_wallet-infra` and
+[`docs/SECURITY_BACKLOG.md`](docs/SECURITY_BACKLOG.md).
+
+## Security CI
+
+Pull requests and main branch builds run additional security checks in a
+parallel `security` job:
+
+| Tool | Purpose | Blocks merge |
+| --- | --- | --- |
+| Gitleaks | Detect secrets in the current repository tree | Yes |
+| pip-audit | Dependency vulnerability scan (JSON report) | No (advisory) |
+| Bandit | Python SAST on `app/` (JSON report) | No (advisory) |
+| `scripts/check_config_security.py` | JWT config fail-fast rules | Yes (in `test` job) |
+
+CI uploads `security-reports` artifacts (`pip-audit-report.json`,
+`bandit-report.json`, 14-day retention) even when advisory steps report findings.
+
+**Run locally:**
+
+```bash
+# JWT config rules (blocking in CI)
+python scripts/check_config_security.py
+
+# Current tree secret scan (same as CI; does not scan full Git history)
+docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.21.2 detect \
+  --source /repo --no-git --redact --config /repo/.gitleaks.toml
+
+# Full Git history audit (manual, one-time; may report historical findings)
+docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.21.2 detect \
+  --source /repo --redact --config /repo/.gitleaks.toml
+
+# Dependency + SAST (pinned in requirements-dev.txt)
+pip install -r requirements-dev.txt
+pip-audit -r requirements.txt -f json -o pip-audit-report.json
+bandit -r app/ -ll -f json -o bandit-report.json
+```
+
+Do not widen `.gitleaks.toml` to ignore whole directories (`tests/`, workflows).
+Only known fake JWT constants are allowlisted. Triage full-history findings
+separately.
+
+Future hardening backlog: [`docs/SECURITY_BACKLOG.md`](docs/SECURITY_BACKLOG.md).
 
 ## Running Locally
 
@@ -252,13 +295,13 @@ GitHub Actions contains two workflows:
 
 | Workflow | Trigger | Purpose |
 | --- | --- | --- |
-| `.github/workflows/ci.yml` | Pull request to `main` | Lint, format check, tests on Python 3.11 and 3.12, Docker Compose smoke test, and Telegram notification on failure. |
-| `.github/workflows/main-build.yml` | Push to `main` | Tests, immutable Docker image build, Compose smoke test, GHCR publish, GitOps image tag update, and Telegram notification. |
+| `.github/workflows/ci.yml` | Pull request to `main` | Lint, format check, tests, security scans (Gitleaks, pip-audit, Bandit), JWT config checks, Docker Compose smoke test, and Telegram notification on failure. |
+| `.github/workflows/main-build.yml` | Push to `main` | Tests, security scans, immutable Docker image build, Compose smoke test, GHCR publish, GitOps image tag update, and Telegram notification. |
 
 The main branch pipeline follows this flow:
 
 ```text
-test -> docker-build -> compose-smoke -> build-and-tag -> bump-gitops -> notify
+test + security -> docker-build -> compose-smoke -> build-and-tag -> bump-gitops -> notify
 ```
 
 The Docker image is built once, smoke-tested, and published to
