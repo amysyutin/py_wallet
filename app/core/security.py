@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 import bcrypt
 from jose import JWTError, jwt
 
-from app.core.config import settings
+from app.core.config import get_settings
 
 
 def _pw_bytes(password: str) -> bytes:
@@ -20,6 +20,7 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 
 def create_access_token(subject: str | int) -> str:
+    settings = get_settings()
     expire = datetime.now(timezone.utc) + timedelta(
         minutes=settings.access_token_ttl_min
     )
@@ -28,6 +29,7 @@ def create_access_token(subject: str | int) -> str:
 
 
 def decode_access_token(token: str) -> str | None:
+    settings = get_settings()
     try:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_alg])
     except JWTError:

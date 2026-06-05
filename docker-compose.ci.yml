@@ -17,6 +17,7 @@ services:
     env_file:
       - .env
     environment:
+      APP_ENV: test
       DATABASE_URL: postgresql+asyncpg://wallet:wallet@postgres:5432/wallet
       JWT_SECRET: ci-test-secret
     ports:

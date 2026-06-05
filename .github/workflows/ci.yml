@@ -35,6 +35,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
+      APP_ENV: test
       DATABASE_URL: postgresql+asyncpg://wallet:wallet@localhost:5432/wallet
       JWT_SECRET: ci-test-secret
       ACCESS_TOKEN_TTL_MIN: "60"
@@ -62,6 +63,9 @@ jobs:
       - name: Run tests
         run: pytest -m "not slow and not e2e" -v --tb=short
 
+      - name: Config security checks
+        run: python scripts/check_config_security.py
+
   compose-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -79,7 +83,7 @@ jobs:
       - name: Create .env
         run: |
           cat > .env <<'EOF'
-          APP_ENV=ci
+          APP_ENV=test
           BINANCE_API_KEY=dummy
           BINANCE_SECRET=dummy
           EVM1_ADDRESS=0x0000000000000000000000000000000000000000
