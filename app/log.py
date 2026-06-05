@@ -1,5 +1,6 @@
 import logging
 import re
+
 from app import config
 
 _SECRET_NAMES = [
@@ -13,12 +14,20 @@ _SECRET_NAMES = [
     "RPC_URL_LINEA",
 ]
 
+_KEY_NAME_PATTERNS = [
+    re.compile(
+        r"(?i)(JWT_SECRET|jwt_secret|BINANCE_SECRET|BINANCE_API_KEY|Authorization)"
+        r"\s*[=:]\s*\S+"
+    ),
+    re.compile(r"(?i)Bearer\s+[A-Za-z0-9\-_\.]+"),
+]
+
 _MASK = "***"
 _MIN_SECRET_LEN = 6
 
 
 def _build_patterns() -> list[re.Pattern]:
-    patterns = []
+    patterns = list(_KEY_NAME_PATTERNS)
     for name in _SECRET_NAMES:
         val = getattr(config, name, "") or ""
         if len(val) >= _MIN_SECRET_LEN:
@@ -39,8 +48,8 @@ class SecretFilter(logging.Filter):
                 record.args = tuple(self._redact(a) for a in record.args)
         return True
 
-    @staticmethod
-    def _redact(value):
+    @classmethod
+    def _redact(cls, value: object) -> object:
         if not isinstance(value, str):
             value = str(value)
         for pat in _patterns:

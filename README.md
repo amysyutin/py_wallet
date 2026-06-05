@@ -132,9 +132,10 @@ cp .env.example .env
 
 | Variable | Required | Description |
 | --- | --- | --- |
+| `APP_ENV` | No | Application environment: `development`, `test`, `staging`, or `production`. Defaults to `development`. `ci` is treated as `test`. |
 | `DATABASE_URL` | No | Async PostgreSQL URL. Defaults to `postgresql+asyncpg://wallet:wallet@localhost:5432/wallet`; Docker Compose sets the container URL. |
-| `JWT_SECRET` | Production | Secret used to sign access tokens. The built-in default is for local development only. |
-| `JWT_ALG` | No | JWT algorithm. Defaults to `HS256`. |
+| `JWT_SECRET` | Staging/Production | Secret used to sign access tokens. Required in staging/production (minimum 32 characters). |
+| `JWT_ALG` | No | JWT algorithm. Only `HS256` is allowed. Defaults to `HS256`. |
 | `ACCESS_TOKEN_TTL_MIN` | No | Access token lifetime in minutes. Defaults to `60`. |
 | `BINANCE_API_KEY` | For Binance API | Binance API key used for signed account requests. |
 | `BINANCE_SECRET` | For Binance API | Binance secret used for request signing. |
@@ -146,6 +147,46 @@ cp .env.example .env
 | `RPC_URL_LINEA` | For Linea aggregation | Linea RPC URL. |
 
 Do not commit `.env`. It is ignored by git.
+
+## JWT Auth Security
+
+`JWT_SECRET` is the symmetric signing key for access tokens (HS256).
+
+**Why the default is dangerous:** this project is open source. A known signing key
+lets anyone forge valid tokens if the app runs with that value in production.
+
+**Generate a strong secret:**
+
+```bash
+openssl rand -hex 32
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+**Environment behavior:**
+
+| `APP_ENV` | `JWT_SECRET` | Behavior |
+| --- | --- | --- |
+| `development` | not set | Uses an implicit dev-only secret and logs a warning. |
+| `development` | set explicitly | Must be at least 16 characters and not a known placeholder. |
+| `test` | not set | Uses `ci-test-secret` for CI and local test runs. |
+| `staging` / `production` | required | Minimum 32 characters; insecure placeholders are rejected at startup. |
+
+**Do not commit `.env`.** Use `.env.example` with placeholders only.
+
+**Verify production config locally:**
+
+```bash
+python scripts/check_config_security.py
+APP_ENV=production JWT_SECRET="$(openssl rand -hex 32)" \
+  python -c "from app.core.config import Settings; Settings(_env_file=None)"
+```
+
+Production runtime secrets are managed in the separate `amysyutin/py_wallet-infra`
+repository (Kubernetes Secret, not committed to Git).
+
+**Secret rotation:** changing `JWT_SECRET` invalidates all existing access tokens.
+Users must log in again. Refresh tokens are not implemented yet; for this
+project a hard cutover (change secret, everyone re-authenticates) is sufficient.
 
 ## Running Locally
 

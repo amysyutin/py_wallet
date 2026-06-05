@@ -1,4 +1,8 @@
 import os
+
+os.environ.setdefault("APP_ENV", "test")
+os.environ.setdefault("JWT_SECRET", "ci-test-secret")
+
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -8,7 +12,7 @@ from sqlalchemy.pool import NullPool
 
 import app.db.models  # noqa: F401
 import app.routes as app_routes
-from app.core.config import settings
+from app.core.config import get_settings, settings
 from app.db.base import Base
 from app.db.session import get_session
 from app.main import app
@@ -16,13 +20,19 @@ from app.services.admin_promote import PromoteAdminStatus, promote_admin_by_emai
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", settings.database_url)
 
-# NullPool: новое соединение на каждый connect — без «залипания» на чужом loop
 test_engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
 
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "slow: тесты, требующие реальных API")
     config.addinivalue_line("markers", "e2e: end-to-end тесты")
+
+
+@pytest.fixture
+def fresh_settings(monkeypatch):
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 @pytest.fixture
@@ -88,7 +98,6 @@ def setup_test_db():
     asyncio.run(_init())
     yield
     app_routes.engine = original_health_engine
-    # dispose не вызываем через asyncio.run — иначе снова ломаем loop
 
 
 @pytest.fixture

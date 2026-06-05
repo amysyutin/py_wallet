@@ -21,6 +21,7 @@ services:
     env_file:
       - .env
     environment:
+      APP_ENV: development
       DATABASE_URL: postgresql+asyncpg://wallet:wallet@postgres:5432/wallet
     ports:
       - "127.0.0.1:8000:8000"
