@@ -1,0 +1,17 @@
+title = "py_wallet gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known OSS dev/test JWT constants only — not real secrets"
+regexTarget = "secret"
+regexes = [
+  '''^dev-insecure-change-me$''',
+  '''^ci-test-secret$''',
+  '''^0x2170Ed0880ac9A755fd29B2688956BD959F933F8$''',
+]
+stopwords = [
+  "dev-insecure-change-me",
+  "ci-test-secret",
+]

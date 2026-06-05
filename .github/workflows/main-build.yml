@@ -70,8 +70,53 @@ jobs:
       - name: Config security checks
         run: python scripts/check_config_security.py
 
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Gitleaks (current tree)
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.21.2 detect \
+            --source /repo \
+            --no-git \
+            --redact \
+            --config /repo/.gitleaks.toml \
+            --exit-code 1
+
+      - name: pip-audit
+        continue-on-error: true
+        run: pip-audit -r requirements.txt -f json -o pip-audit-report.json
+
+      - name: Bandit
+        continue-on-error: true
+        run: bandit -r app/ -ll -f json -o bandit-report.json
+
+      - name: Upload security reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports
+          path: |
+            pip-audit-report.json
+            bandit-report.json
+          retention-days: 14
+
   docker-build:
-    needs: test
+    needs: [test, security]
     runs-on: ubuntu-latest
     timeout-minutes: 15
 

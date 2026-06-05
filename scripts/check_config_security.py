@@ -29,10 +29,18 @@ def run_settings(env: dict[str, str]) -> tuple[int, str]:
     return result.returncode, output
 
 
-def expect_fail(name: str, env: dict[str, str]) -> None:
-    code, _ = run_settings(env)
+def expect_fail(
+    name: str,
+    env: dict[str, str],
+    *,
+    forbidden_in_output: str | None = None,
+) -> None:
+    code, output = run_settings(env)
     if code == 0:
         print(f"FAIL: {name} — expected ValidationError")
+        sys.exit(1)
+    if forbidden_in_output and forbidden_in_output in output:
+        print(f"FAIL: {name} — secret leaked in error output")
         sys.exit(1)
     print(f"OK: {name}")
 
@@ -48,6 +56,7 @@ def expect_ok(name: str, env: dict[str, str]) -> None:
 
 def main() -> None:
     valid = secrets.token_urlsafe(48)
+    short_secret = "my-short-secret-value"
 
     expect_fail("production + missing JWT_SECRET", {"APP_ENV": "production"})
     expect_fail(
@@ -66,10 +75,26 @@ def main() -> None:
         "production + JWT_ALG=none",
         {"APP_ENV": "production", "JWT_SECRET": valid, "JWT_ALG": "none"},
     )
+    expect_fail(
+        "production + short secret omits value in error output",
+        {"APP_ENV": "production", "JWT_SECRET": short_secret},
+        forbidden_in_output=short_secret,
+    )
     expect_ok(
         "production + valid generated secret",
         {"APP_ENV": "production", "JWT_SECRET": valid},
     )
+
+    expect_fail("staging + missing JWT_SECRET", {"APP_ENV": "staging"})
+    expect_fail(
+        "staging + dev-insecure-change-me",
+        {"APP_ENV": "staging", "JWT_SECRET": "dev-insecure-change-me"},
+    )
+    expect_ok(
+        "staging + valid generated secret",
+        {"APP_ENV": "staging", "JWT_SECRET": valid},
+    )
+
     expect_ok("test + default (no JWT_SECRET)", {"APP_ENV": "test"})
     expect_ok(
         "test + ci-test-secret",
