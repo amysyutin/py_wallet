@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.core.config import get_settings
 from app.db.session import engine
@@ -34,6 +35,10 @@ app.include_router(auth_router)
 app.include_router(wallets_router)
 app.include_router(snapshots_router)
 app.include_router(portfolio_router)
+
+Instrumentator().instrument(app).expose(
+    app, endpoint="/metrics", include_in_schema=False
+)
 
 
 @app.get("/")
