@@ -21,6 +21,31 @@ def test_health():
     assert response.json()["status"] == "healthy"
 
 
+def test_health_live():
+    response = client.get("/health/live")
+    assert response.status_code == 200
+    assert response.json()["status"] == "alive"
+
+
+def test_health_ready():
+    response = client.get("/health/ready")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ready"
+
+
+@patch("app.routes._assert_database_available", side_effect=Exception("db down"))
+def test_health_ready_db_unavailable(_mock_db):
+    response = client.get("/health/ready")
+    assert response.status_code == 503
+    assert response.json()["detail"] == "database unavailable"
+
+
+def test_metrics():
+    response = client.get("/metrics")
+    assert response.status_code == 200
+    assert "# HELP" in response.text or "http_requests_total" in response.text
+
+
 # ─── /assets ────────────────────────────────────────────────────────────────
 
 

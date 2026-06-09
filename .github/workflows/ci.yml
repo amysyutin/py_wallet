@@ -167,6 +167,15 @@ jobs:
           echo ""
           echo "--- GET /health ---"
           curl -fsS http://127.0.0.1:8000/health
+          echo ""
+          echo "--- GET /health/live ---"
+          curl -fsS http://127.0.0.1:8000/health/live
+          echo ""
+          echo "--- GET /health/ready ---"
+          curl -fsS http://127.0.0.1:8000/health/ready
+          echo ""
+          echo "--- GET /metrics ---"
+          curl -fsS http://127.0.0.1:8000/metrics | head -n 5
 
       - name: Show logs on failure
         if: failure()

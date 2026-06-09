@@ -12,11 +12,32 @@ from app.db.session import engine
 router = APIRouter()
 
 
+async def _assert_database_available() -> None:
+    async with engine.connect() as conn:
+        await conn.execute(text("SELECT 1"))
+
+
+@router.get("/health/live")
+async def health_live():
+    return {"status": "alive"}
+
+
+@router.get("/health/ready")
+async def health_ready():
+    try:
+        await _assert_database_available()
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="database unavailable",
+        )
+    return {"status": "ready"}
+
+
 @router.get("/health")
 async def health():
     try:
-        async with engine.connect() as conn:
-            await conn.execute(text("SELECT 1"))
+        await _assert_database_available()
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
