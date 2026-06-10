@@ -29,7 +29,12 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    title="py_wallet",
+    description="Crypto portfolio aggregation and monitoring service.",
+    version="0.1.0",
+    lifespan=lifespan,
+)
 app.include_router(router)
 app.include_router(auth_router)
 app.include_router(wallets_router)
