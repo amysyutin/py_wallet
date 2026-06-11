@@ -69,7 +69,9 @@ async def test_create_wallet_defaults(client: AsyncClient, auth_headers: dict):
     assert data["group_id"] is None
 
 
-async def test_create_wallet_manual_type_rejected(client: AsyncClient, auth_headers: dict):
+async def test_create_wallet_manual_type_rejected(
+    client: AsyncClient, auth_headers: dict
+):
     r = await client.post(
         "/wallets",
         headers=auth_headers,
@@ -87,9 +89,7 @@ async def test_create_wallet_foreign_group_404(client: AsyncClient):
     h1 = await _register_and_login(client, "w-owner@example.com")
     h2 = await _register_and_login(client, "w-other@example.com")
     group = (
-        await client.post(
-            "/wallet-groups", headers=h1, json={"name": "Private"}
-        )
+        await client.post("/wallet-groups", headers=h1, json={"name": "Private"})
     ).json()
     r = await client.post(
         "/wallets",
@@ -213,13 +213,17 @@ async def test_delete_wallet_idempotent(client: AsyncClient, auth_headers: dict)
             },
         )
     ).json()
-    assert (await client.delete(f"/wallets/{wallet['id']}", headers=auth_headers)).status_code == 200
+    assert (
+        await client.delete(f"/wallets/{wallet['id']}", headers=auth_headers)
+    ).status_code == 200
     r = await client.delete(f"/wallets/{wallet['id']}", headers=auth_headers)
     assert r.status_code == 200
     assert r.json()["is_active"] is False
 
 
-async def test_list_wallets_active_only_default(client: AsyncClient, auth_headers: dict):
+async def test_list_wallets_active_only_default(
+    client: AsyncClient, auth_headers: dict
+):
     active = (
         await client.post(
             "/wallets",
@@ -336,16 +340,14 @@ async def test_migration_backfill_attaches_default_group(db_session: AsyncSessio
     await db_session.flush()
 
     await db_session.execute(
-        text(
-            """
+        text("""
             UPDATE wallets w
             SET group_id = wg.id
             FROM wallet_groups wg
             WHERE wg.user_id = w.user_id
               AND wg.name = 'Default'
               AND w.id = :wallet_id
-            """
-        ),
+            """),
         {"wallet_id": wallet.id},
     )
     await db_session.refresh(wallet)

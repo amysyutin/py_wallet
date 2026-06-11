@@ -104,14 +104,10 @@ async def test_same_group_name_different_users_allowed(client: AsyncClient):
     h1 = await _register_and_login(client, "wg-user1@example.com")
     h2 = await _register_and_login(client, "wg-user2@example.com")
     assert (
-        await client.post(
-            "/wallet-groups", headers=h1, json={"name": "Shared"}
-        )
+        await client.post("/wallet-groups", headers=h1, json={"name": "Shared"})
     ).status_code == 201
     assert (
-        await client.post(
-            "/wallet-groups", headers=h2, json={"name": "Shared"}
-        )
+        await client.post("/wallet-groups", headers=h2, json={"name": "Shared"})
     ).status_code == 201
 
 
@@ -119,9 +115,7 @@ async def test_cannot_access_another_users_group(client: AsyncClient):
     h1 = await _register_and_login(client, "wg-owner@example.com")
     h2 = await _register_and_login(client, "wg-other@example.com")
     created = (
-        await client.post(
-            "/wallet-groups", headers=h1, json={"name": "Private"}
-        )
+        await client.post("/wallet-groups", headers=h1, json={"name": "Private"})
     ).json()
     assert (
         await client.get(f"/wallet-groups/{created['id']}", headers=h2)

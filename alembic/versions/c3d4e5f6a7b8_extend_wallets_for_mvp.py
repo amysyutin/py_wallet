@@ -21,11 +21,15 @@ def upgrade() -> None:
     op.add_column("wallets", sa.Column("group_id", sa.BigInteger(), nullable=True))
     op.add_column(
         "wallets",
-        sa.Column("wallet_type", sa.String(length=32), nullable=False, server_default="evm"),
+        sa.Column(
+            "wallet_type", sa.String(length=32), nullable=False, server_default="evm"
+        ),
     )
     op.add_column(
         "wallets",
-        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
+        sa.Column(
+            "is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")
+        ),
     )
     op.add_column("wallets", sa.Column("notes", sa.String(length=500), nullable=True))
     op.add_column(
@@ -39,17 +43,13 @@ def upgrade() -> None:
     )
 
     # Attach existing wallets to Default group of their user.
-    op.execute(
-        sa.text(
-            """
+    op.execute(sa.text("""
             UPDATE wallets w
             SET group_id = wg.id
             FROM wallet_groups wg
             WHERE wg.user_id = w.user_id
               AND wg.name = 'Default'
-            """
-        )
-    )
+            """))
 
     op.create_foreign_key(
         "fk_wallets_group_id",
@@ -61,7 +61,10 @@ def upgrade() -> None:
     )
     op.create_index(op.f("ix_wallets_group_id"), "wallets", ["group_id"], unique=False)
     op.create_index(
-        "ix_wallets_user_id_is_active", "wallets", ["user_id", "is_active"], unique=False
+        "ix_wallets_user_id_is_active",
+        "wallets",
+        ["user_id", "is_active"],
+        unique=False,
     )
 
 

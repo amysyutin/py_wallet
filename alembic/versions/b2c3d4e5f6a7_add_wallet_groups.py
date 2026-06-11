@@ -46,14 +46,10 @@ def upgrade() -> None:
     )
 
     # Backfill: Default group for each existing user (not for new registrations).
-    op.execute(
-        sa.text(
-            """
+    op.execute(sa.text("""
             INSERT INTO wallet_groups (user_id, name, sort_order)
             SELECT id, 'Default', 0 FROM users
-            """
-        )
-    )
+            """))
 
 
 def downgrade() -> None:

@@ -3,7 +3,15 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import (
+    BigInteger,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -15,7 +23,9 @@ if TYPE_CHECKING:
 
 class WalletGroup(Base):
     __tablename__ = "wallet_groups"
-    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_wallet_groups_user_name"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "name", name="uq_wallet_groups_user_name"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(

@@ -28,9 +28,7 @@ async def _get_owned_group(
 async def _wallets_count(session: SessionDep, group_id: int) -> int:
     return (
         await session.scalar(
-            select(func.count())
-            .select_from(Wallet)
-            .where(Wallet.group_id == group_id)
+            select(func.count()).select_from(Wallet).where(Wallet.group_id == group_id)
         )
         or 0
     )
@@ -39,8 +37,10 @@ async def _wallets_count(session: SessionDep, group_id: int) -> int:
 async def _to_read(
     session: SessionDep, group: WalletGroup, wallets_count: int | None = None
 ) -> WalletGroupRead:
-    count = wallets_count if wallets_count is not None else await _wallets_count(
-        session, group.id
+    count = (
+        wallets_count
+        if wallets_count is not None
+        else await _wallets_count(session, group.id)
     )
     return WalletGroupRead(
         id=group.id,
