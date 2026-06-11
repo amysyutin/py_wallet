@@ -38,6 +38,7 @@ py_wallet/
 │   │   └── session.py                # Async database sessions
 │   ├── routers/
 │   │   ├── auth.py                   # Registration, login, current user
+│   │   ├── wallet_groups.py          # Wallet group CRUD
 │   │   ├── wallets.py                # User wallet management
 │   │   ├── snapshots.py              # Balance snapshot creation
 │   │   └── portfolio.py              # Portfolio history and summary
@@ -78,9 +79,17 @@ Authenticated endpoints require `Authorization: Bearer <token>`:
 | Method | Path | Description |
 | --- | --- | --- |
 | `GET` | `/auth/me` | Return the authenticated user (includes `role`). |
-| `POST` | `/wallets` | Add a wallet with `label`, `address`, and `chain_type`. |
-| `GET` | `/wallets` | List the authenticated user's wallets. |
-| `POST` | `/snapshot` | Create a snapshot for one wallet or all supported EVM wallets. |
+| `POST` | `/wallet-groups` | Create a wallet group (`name`, optional `description`, `sort_order`). |
+| `GET` | `/wallet-groups` | List the authenticated user's wallet groups. |
+| `GET` | `/wallet-groups/{id}` | Get a wallet group by ID. |
+| `PATCH` | `/wallet-groups/{id}` | Update a wallet group. |
+| `DELETE` | `/wallet-groups/{id}` | Delete a wallet group (wallets keep `group_id = NULL`). |
+| `POST` | `/wallets` | Add an EVM wallet (`label`, `address`, `chain_type`, optional `group_id`, `notes`). |
+| `GET` | `/wallets` | List active wallets (`?active_only=false` for all). |
+| `GET` | `/wallets/{id}` | Get a wallet by ID. |
+| `PATCH` | `/wallets/{id}` | Update wallet metadata (`label`, `group_id`, `is_active`, `notes`). |
+| `DELETE` | `/wallets/{id}` | Soft-delete a wallet (`is_active=false`). |
+| `POST` | `/snapshot` | Create a snapshot for one active wallet or all active EVM wallets. |
 | `GET` | `/portfolio?wallet_id=<id>&days=30` | Return snapshot history for a wallet. |
 | `GET` | `/portfolio/summary` | Return total USD value and top assets from the latest wallet snapshots. |
 
