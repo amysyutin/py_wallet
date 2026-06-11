@@ -48,6 +48,8 @@ async def take_snapshot(
         )
         if wallet is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Wallet not found")
+        if not wallet.is_active:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Wallet is inactive")
         if wallet.chain_type not in CHAIN_RPC:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -56,7 +58,10 @@ async def take_snapshot(
         wallets = [wallet]
     else:
         result = await session.scalars(
-            select(Wallet).where(Wallet.user_id == current_user.id)
+            select(Wallet).where(
+                Wallet.user_id == current_user.id,
+                Wallet.is_active.is_(True),
+            )
         )
         wallets = [w for w in result if w.chain_type in CHAIN_RPC]
 

@@ -11,6 +11,7 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.db.models.wallet import Wallet
+    from app.db.models.wallet_group import WalletGroup
 
 
 class UserRole(str, Enum):
@@ -40,5 +41,8 @@ class User(Base):
     )
 
     wallets: Mapped[list[Wallet]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    wallet_groups: Mapped[list[WalletGroup]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )

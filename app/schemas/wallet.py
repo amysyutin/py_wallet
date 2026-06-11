@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -9,8 +10,11 @@ SUPPORTED_CHAINS = set(CHAIN_RPC) | {"binance"}
 
 class WalletCreate(BaseModel):
     label: str = Field(min_length=1, max_length=100)
+    wallet_type: Literal["evm"] = "evm"
     address: str = Field(min_length=1, max_length=128)
     chain_type: str
+    group_id: int | None = None
+    notes: str | None = Field(default=None, max_length=500)
 
     @field_validator("chain_type")
     @classmethod
@@ -20,6 +24,15 @@ class WalletCreate(BaseModel):
         return v
 
 
+class WalletUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str | None = Field(default=None, min_length=1, max_length=100)
+    group_id: int | None = None
+    is_active: bool | None = None
+    notes: str | None = Field(default=None, max_length=500)
+
+
 class WalletRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -27,4 +40,9 @@ class WalletRead(BaseModel):
     label: str
     address: str
     chain_type: str
+    wallet_type: str
+    group_id: int | None
+    is_active: bool
+    notes: str | None
     created_at: datetime
+    updated_at: datetime

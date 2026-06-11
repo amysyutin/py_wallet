@@ -9,6 +9,7 @@ from app.log import get_logger
 from app.routers.auth import router as auth_router
 from app.routers.portfolio import router as portfolio_router
 from app.routers.snapshots import router as snapshots_router
+from app.routers.wallet_groups import router as wallet_groups_router
 from app.routers.wallets import router as wallets_router
 from app.routes import router
 
@@ -37,6 +38,7 @@ app = FastAPI(
 )
 app.include_router(router)
 app.include_router(auth_router)
+app.include_router(wallet_groups_router)
 app.include_router(wallets_router)
 app.include_router(snapshots_router)
 app.include_router(portfolio_router)

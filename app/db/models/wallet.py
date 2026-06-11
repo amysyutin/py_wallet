@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, String, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from app.db.models.snapshot import Snapshot
     from app.db.models.transaction import Transaction
     from app.db.models.user import User
+    from app.db.models.wallet_group import WalletGroup
 
 
 class Wallet(Base):
@@ -21,14 +22,30 @@ class Wallet(Base):
     user_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
+    group_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("wallet_groups.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     label: Mapped[str] = mapped_column(String(100))
     address: Mapped[str] = mapped_column(String(128))
     chain_type: Mapped[str] = mapped_column(String(32))
+    wallet_type: Mapped[str] = mapped_column(String(32), nullable=False, default="evm")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
 
     user: Mapped[User] = relationship(back_populates="wallets")
+    group: Mapped[WalletGroup | None] = relationship(back_populates="wallets")
     snapshots: Mapped[list[Snapshot]] = relationship(
         back_populates="wallet", cascade="all, delete-orphan"
     )
