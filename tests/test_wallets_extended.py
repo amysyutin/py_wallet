@@ -69,7 +69,26 @@ async def test_create_wallet_defaults(client: AsyncClient, auth_headers: dict):
     assert data["group_id"] is None
 
 
-async def test_create_wallet_manual_type_rejected(
+async def test_create_manual_wallet_without_address(
+    client: AsyncClient, auth_headers: dict
+):
+    r = await client.post(
+        "/wallets",
+        headers=auth_headers,
+        json={
+            "label": "Manual BTC",
+            "wallet_type": "manual",
+            "chain_type": "manual",
+        },
+    )
+    assert r.status_code == 201
+    data = r.json()
+    assert data["wallet_type"] == "manual"
+    assert data["chain_type"] == "manual"
+    assert data["address"] is None
+
+
+async def test_create_manual_wallet_wrong_chain_type(
     client: AsyncClient, auth_headers: dict
 ):
     r = await client.post(
@@ -78,8 +97,38 @@ async def test_create_wallet_manual_type_rejected(
         json={
             "label": "Manual",
             "wallet_type": "manual",
-            "address": "0x0000000000000000000000000000000000000003",
             "chain_type": "mainnet",
+        },
+    )
+    assert r.status_code == 422
+
+
+async def test_create_evm_wallet_without_address(
+    client: AsyncClient, auth_headers: dict
+):
+    r = await client.post(
+        "/wallets",
+        headers=auth_headers,
+        json={
+            "label": "EVM",
+            "wallet_type": "evm",
+            "chain_type": "mainnet",
+        },
+    )
+    assert r.status_code == 422
+
+
+async def test_create_evm_wallet_with_manual_chain_type(
+    client: AsyncClient, auth_headers: dict
+):
+    r = await client.post(
+        "/wallets",
+        headers=auth_headers,
+        json={
+            "label": "EVM",
+            "wallet_type": "evm",
+            "address": "0x0000000000000000000000000000000000000003",
+            "chain_type": "manual",
         },
     )
     assert r.status_code == 422

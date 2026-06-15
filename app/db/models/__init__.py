@@ -1,6 +1,7 @@
 from app.db.base import Base
 from app.db.models.asset import Asset
 from app.db.models.balance_snapshot import BalanceSnapshot
+from app.db.models.manual_balance import ManualBalance
 from app.db.models.price_history import PriceHistory
 from app.db.models.snapshot import Snapshot
 from app.db.models.transaction import Transaction
@@ -14,6 +15,7 @@ __all__ = [
     "Wallet",
     "WalletGroup",
     "Asset",
+    "ManualBalance",
     "Snapshot",
     "BalanceSnapshot",
     "Transaction",

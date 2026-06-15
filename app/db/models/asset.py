@@ -15,6 +15,6 @@ class Asset(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     symbol: Mapped[str] = mapped_column(String(32), index=True)
     name: Mapped[str | None] = mapped_column(String(128))
-    contract_address: Mapped[str] = mapped_column(String(128))
+    contract_address: Mapped[str | None] = mapped_column(String(128), nullable=True)
     chain: Mapped[str] = mapped_column(String(32))
     decimals: Mapped[int] = mapped_column(Integer, default=18)
