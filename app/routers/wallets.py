@@ -1,10 +1,16 @@
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlalchemy import select
 
 from app.db.models.wallet import Wallet
 from app.db.models.wallet_group import WalletGroup
 from app.deps import CurrentUser, SessionDep
+from app.schemas.manual_balance import ManualBalancesPut, ManualBalancesRead
 from app.schemas.wallet import WalletCreate, WalletRead, WalletUpdate
+from app.services.manual_balance import (
+    delete_manual_balance,
+    get_manual_balances,
+    upsert_manual_balances,
+)
 
 router = APIRouter(prefix="/wallets", tags=["wallets"])
 
@@ -129,3 +135,43 @@ async def delete_wallet(
         await session.refresh(wallet)
 
     return wallet
+
+
+@router.get("/{wallet_id}/balances", response_model=ManualBalancesRead)
+async def list_wallet_balances(
+    wallet_id: int,
+    current_user: CurrentUser,
+    session: SessionDep,
+) -> ManualBalancesRead:
+    wallet = await _get_owned_wallet(session, current_user.id, wallet_id)
+    if wallet is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Wallet not found")
+    return await get_manual_balances(session, wallet)
+
+
+@router.put("/{wallet_id}/balances", response_model=ManualBalancesRead)
+async def put_wallet_balances(
+    wallet_id: int,
+    payload: ManualBalancesPut,
+    current_user: CurrentUser,
+    session: SessionDep,
+) -> ManualBalancesRead:
+    wallet = await _get_owned_wallet(session, current_user.id, wallet_id)
+    if wallet is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Wallet not found")
+    return await upsert_manual_balances(session, wallet, payload)
+
+
+@router.delete(
+    "/{wallet_id}/balances/{asset_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+async def remove_wallet_balance(
+    wallet_id: int,
+    asset_id: int,
+    current_user: CurrentUser,
+    session: SessionDep,
+) -> Response:
+    wallet = await _get_owned_wallet(session, current_user.id, wallet_id)
+    if wallet is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Wallet not found")
+    return await delete_manual_balance(session, wallet, asset_id)

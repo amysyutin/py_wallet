@@ -84,11 +84,14 @@ Authenticated endpoints require `Authorization: Bearer <token>`:
 | `GET` | `/wallet-groups/{id}` | Get a wallet group by ID. |
 | `PATCH` | `/wallet-groups/{id}` | Update a wallet group. |
 | `DELETE` | `/wallet-groups/{id}` | Delete a wallet group (wallets keep `group_id = NULL`). |
-| `POST` | `/wallets` | Add an EVM wallet (`label`, `address`, `chain_type`, optional `group_id`, `notes`). |
+| `POST` | `/wallets` | Add a wallet (`wallet_type`: `evm` or `manual`; EVM requires `address` + supported `chain_type`; manual requires `chain_type=manual`, no address). |
 | `GET` | `/wallets` | List active wallets (`?active_only=false` for all). |
 | `GET` | `/wallets/{id}` | Get a wallet by ID. |
 | `PATCH` | `/wallets/{id}` | Update wallet metadata (`label`, `group_id`, `is_active`, `notes`). |
 | `DELETE` | `/wallets/{id}` | Soft-delete a wallet (`is_active=false`). |
+| `GET` | `/wallets/{id}/balances` | List manual balances for a wallet (`total_usd`, per-asset `value_usd`). |
+| `PUT` | `/wallets/{id}/balances` | Upsert manual balances (manual wallets only). |
+| `DELETE` | `/wallets/{id}/balances/{asset_id}` | Delete one manual balance row. |
 | `POST` | `/snapshot` | Create a snapshot for one active wallet or all active EVM wallets. |
 | `GET` | `/portfolio?wallet_id=<id>&days=30` | Return snapshot history for a wallet. |
 | `GET` | `/portfolio/summary` | Return total USD value and top assets from the latest wallet snapshots. |
@@ -99,9 +102,33 @@ Admin endpoints require a JWT for a user with `role=admin` in the database:
 | --- | --- | --- |
 | `GET` | `/binance/balance` | Real Binance Spot and Earn portfolio summary (signed API). |
 
-Supported `chain_type` values for wallets are `mainnet`, `base`, `bnb`,
-`arbitrum`, `linea`, and `binance`. Snapshot collection currently supports EVM
-wallets only.
+Supported `chain_type` values for EVM wallets are `mainnet`, `base`, `bnb`,
+`arbitrum`, `linea`, and `binance`. Manual wallets use `chain_type=manual`.
+Snapshot collection currently supports EVM wallets only.
+
+### Manual wallet example
+
+```bash
+# Create a manual wallet (no on-chain address)
+curl -X POST http://localhost:8000/wallets \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"label":"Manual BTC","wallet_type":"manual","chain_type":"manual"}'
+
+# Add or update balances (amount * price_usd → value_usd; null price → 0)
+curl -X PUT http://localhost:8000/wallets/1/balances \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"balances":[{"symbol":"BTC","amount":"0.125","price_usd":"68000"}]}'
+
+# List balances and total_usd
+curl http://localhost:8000/wallets/1/balances \
+  -H "Authorization: Bearer $TOKEN"
+
+# Delete one balance by asset_id
+curl -X DELETE http://localhost:8000/wallets/1/balances/1 \
+  -H "Authorization: Bearer $TOKEN"
+```
 
 If `/assets` is called without the `address` query parameter, the app uses
 `EVM1_ADDRESS` from the environment.

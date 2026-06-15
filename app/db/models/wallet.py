@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 if TYPE_CHECKING:
+    from app.db.models.manual_balance import ManualBalance
     from app.db.models.snapshot import Snapshot
     from app.db.models.transaction import Transaction
     from app.db.models.user import User
@@ -29,7 +30,7 @@ class Wallet(Base):
         index=True,
     )
     label: Mapped[str] = mapped_column(String(100))
-    address: Mapped[str] = mapped_column(String(128))
+    address: Mapped[str | None] = mapped_column(String(128), nullable=True)
     chain_type: Mapped[str] = mapped_column(String(32))
     wallet_type: Mapped[str] = mapped_column(String(32), nullable=False, default="evm")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
@@ -50,5 +51,8 @@ class Wallet(Base):
         back_populates="wallet", cascade="all, delete-orphan"
     )
     transactions: Mapped[list[Transaction]] = relationship(
+        back_populates="wallet", cascade="all, delete-orphan"
+    )
+    manual_balances: Mapped[list[ManualBalance]] = relationship(
         back_populates="wallet", cascade="all, delete-orphan"
     )
