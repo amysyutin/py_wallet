@@ -87,13 +87,14 @@ Authenticated endpoints require `Authorization: Bearer <token>`:
 | `POST` | `/wallets` | Add a wallet (`wallet_type`: `evm` or `manual`; EVM requires `address` + supported `chain_type`; manual requires `chain_type=manual`, no address). |
 | `GET` | `/wallets` | List active wallets (`?active_only=false` for all). |
 | `GET` | `/wallets/{id}` | Get a wallet by ID. |
-| `PATCH` | `/wallets/{id}` | Update wallet metadata (`label`, `group_id`, `is_active`, `notes`). |
+| `GET` | `/wallets/{id}/assets` | Live EVM portfolio for the wallet address across all supported chains (`total_usd`, per-chain breakdown). |
+| `PATCH` | `/wallets/{id}` | Update wallet fields (`label`, `group_id`, `is_active`, `notes`; EVM wallets also `chain_type` and `address`). |
 | `DELETE` | `/wallets/{id}` | Soft-delete a wallet (`is_active=false`). |
 | `GET` | `/wallets/{id}/balances` | List manual balances for a wallet (`total_usd`, per-asset `value_usd`). |
 | `PUT` | `/wallets/{id}/balances` | Upsert manual balances (manual wallets only). |
 | `DELETE` | `/wallets/{id}/balances/{asset_id}` | Delete one manual balance row. |
-| `POST` | `/snapshot` | Create a snapshot for one active wallet or all active EVM wallets. |
-| `GET` | `/portfolio?wallet_id=<id>&days=30` | Return snapshot history for a wallet. |
+| `POST` | `/snapshot` | Create a snapshot for one active wallet or all active EVM wallets; EVM snapshots aggregate the wallet address across all supported EVM chains. |
+| `GET` | `/portfolio?wallet_id=<id>&days=30` | Return snapshot history for a wallet (`total_usd` from multi-chain EVM snapshots). |
 | `GET` | `/portfolio/summary` | Return total USD value and top assets from the latest wallet snapshots. |
 
 Admin endpoints require a JWT for a user with `role=admin` in the database:
@@ -105,6 +106,32 @@ Admin endpoints require a JWT for a user with `role=admin` in the database:
 Supported `chain_type` values for EVM wallets are `mainnet`, `base`, `bnb`,
 `arbitrum`, `linea`, and `binance`. Manual wallets use `chain_type=manual`.
 Snapshot collection currently supports EVM wallets only.
+
+For existing EVM wallets, `PATCH /wallets/{id}` accepts `chain_type` and
+`address` (together or separately). `wallet_type` cannot be changed after
+creation; manual wallets cannot switch to an on-chain network.
+
+`GET /wallets/{id}/assets` returns the live USD total and per-chain breakdown
+for the wallet address across all EVM networks (`mainnet`, `base`, `bnb`,
+`arbitrum`, `linea`). The wallet record still stores one `chain_type` (the
+network selected in the UI); the assets endpoint aggregates the same address
+on every supported chain. Response shape matches public `GET /assets`.
+
+`POST /snapshot` uses the same multi-chain EVM scope for stored history, so
+`GET /portfolio?wallet_id=<id>&days=30` can power a chart of the wallet's
+total USD value across all EVM networks over time.
+
+```bash
+# Live total across all EVM chains for a wallet
+curl http://localhost:8000/wallets/1/assets \
+  -H "Authorization: Bearer $TOKEN"
+
+# Change network and address on an EVM wallet
+curl -X PATCH http://localhost:8000/wallets/1 \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"chain_type":"base","address":"0x..."}'
+```
 
 ### Manual wallet example
 

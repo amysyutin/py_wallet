@@ -1,16 +1,24 @@
 from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 
 from app.db.models.wallet import Wallet
 from app.db.models.wallet_group import WalletGroup
 from app.deps import CurrentUser, SessionDep
+from app.models import PortfolioSummary
 from app.schemas.manual_balance import ManualBalancesPut, ManualBalancesRead
-from app.schemas.wallet import WalletCreate, WalletRead, WalletUpdate
+from app.schemas.wallet import (
+    WalletCreate,
+    WalletRead,
+    WalletUpdate,
+    validate_wallet_network_state,
+)
 from app.services.manual_balance import (
     delete_manual_balance,
     get_manual_balances,
     upsert_manual_balances,
 )
+from app.services.portfolio import summarize_all
 
 router = APIRouter(prefix="/wallets", tags=["wallets"])
 
@@ -111,6 +119,19 @@ async def update_wallet(
     if "group_id" in updates:
         await _validate_group_id(session, current_user.id, updates["group_id"])
 
+    if "chain_type" in updates or "address" in updates:
+        try:
+            validate_wallet_network_state(
+                wallet.wallet_type,
+                updates.get("chain_type", wallet.chain_type),
+                updates.get("address", wallet.address),
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(exc),
+            ) from exc
+
     for field, value in updates.items():
         setattr(wallet, field, value)
 
@@ -135,6 +156,28 @@ async def delete_wallet(
         await session.refresh(wallet)
 
     return wallet
+
+
+@router.get("/{wallet_id}/assets", response_model=PortfolioSummary)
+async def get_wallet_assets(
+    wallet_id: int,
+    current_user: CurrentUser,
+    session: SessionDep,
+) -> PortfolioSummary:
+    wallet = await _get_owned_wallet(session, current_user.id, wallet_id)
+    if wallet is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Wallet not found")
+    if wallet.wallet_type != "evm":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Multi-chain assets are available for EVM wallets only",
+        )
+    if not wallet.address:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Wallet has no address",
+        )
+    return await run_in_threadpool(summarize_all, wallet.address)
 
 
 @router.get("/{wallet_id}/balances", response_model=ManualBalancesRead)
