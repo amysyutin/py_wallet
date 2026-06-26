@@ -1,15 +1,19 @@
 """Tests for extended wallet CRUD and migration backfill behavior."""
 
+from decimal import Decimal
 from unittest.mock import patch
 
 from httpx import AsyncClient
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import CHAIN_RPC
 from app.core.security import hash_password
 from app.db.models.user import User
 from app.db.models.wallet import Wallet
 from app.db.models.wallet_group import WalletGroup
+from app.models import PortfolioSummary
+from app.services.snapshot import BalanceItem
 
 
 async def _register_and_login(client: AsyncClient, email: str) -> dict[str, str]:
@@ -213,6 +217,119 @@ async def test_patch_wallet(client: AsyncClient, auth_headers: dict):
     assert data["notes"] == "patched"
 
 
+async def test_patch_wallet_network_fields(client: AsyncClient, auth_headers: dict):
+    wallet = (
+        await client.post(
+            "/wallets",
+            headers=auth_headers,
+            json={
+                "label": "Network",
+                "address": "0x0000000000000000000000000000000000000007",
+                "chain_type": "mainnet",
+            },
+        )
+    ).json()
+    r = await client.patch(
+        f"/wallets/{wallet['id']}",
+        headers=auth_headers,
+        json={
+            "address": "0x000000000000000000000000000000000000ffff",
+            "chain_type": "base",
+        },
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["address"] == "0x000000000000000000000000000000000000ffff"
+    assert data["chain_type"] == "base"
+
+
+async def test_patch_wallet_chain_type_only(client: AsyncClient, auth_headers: dict):
+    wallet = (
+        await client.post(
+            "/wallets",
+            headers=auth_headers,
+            json={
+                "label": "ChainOnly",
+                "address": "0x00000000000000000000000000000000000000aa",
+                "chain_type": "mainnet",
+            },
+        )
+    ).json()
+    r = await client.patch(
+        f"/wallets/{wallet['id']}",
+        headers=auth_headers,
+        json={"chain_type": "arbitrum"},
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["chain_type"] == "arbitrum"
+    assert data["address"] == wallet["address"]
+
+
+async def test_patch_wallet_invalid_chain_type(client: AsyncClient, auth_headers: dict):
+    wallet = (
+        await client.post(
+            "/wallets",
+            headers=auth_headers,
+            json={
+                "label": "BadChain",
+                "address": "0x00000000000000000000000000000000000000ab",
+                "chain_type": "mainnet",
+            },
+        )
+    ).json()
+    r = await client.patch(
+        f"/wallets/{wallet['id']}",
+        headers=auth_headers,
+        json={"chain_type": "unknown"},
+    )
+    assert r.status_code == 422
+
+
+async def test_patch_evm_wallet_cannot_clear_address(
+    client: AsyncClient, auth_headers: dict
+):
+    wallet = (
+        await client.post(
+            "/wallets",
+            headers=auth_headers,
+            json={
+                "label": "NoClear",
+                "address": "0x00000000000000000000000000000000000000ac",
+                "chain_type": "mainnet",
+            },
+        )
+    ).json()
+    r = await client.patch(
+        f"/wallets/{wallet['id']}",
+        headers=auth_headers,
+        json={"address": None},
+    )
+    assert r.status_code == 422
+
+
+async def test_patch_manual_wallet_cannot_change_chain_type(
+    client: AsyncClient, auth_headers: dict
+):
+    wallet = (
+        await client.post(
+            "/wallets",
+            headers=auth_headers,
+            json={
+                "label": "Manual",
+                "wallet_type": "manual",
+                "chain_type": "manual",
+            },
+        )
+    ).json()
+    r = await client.patch(
+        f"/wallets/{wallet['id']}",
+        headers=auth_headers,
+        json={"chain_type": "mainnet"},
+    )
+    assert r.status_code == 422
+
+
 async def test_patch_forbidden_fields_rejected(client: AsyncClient, auth_headers: dict):
     wallet = (
         await client.post(
@@ -228,9 +345,75 @@ async def test_patch_forbidden_fields_rejected(client: AsyncClient, auth_headers
     r = await client.patch(
         f"/wallets/{wallet['id']}",
         headers=auth_headers,
-        json={"address": "0x000000000000000000000000000000000000ffff"},
+        json={"wallet_type": "manual"},
     )
     assert r.status_code == 422
+
+
+@patch("app.routers.wallets.summarize_all")
+async def test_get_wallet_assets_evm(
+    mock_summarize, client: AsyncClient, auth_headers: dict
+):
+    wallet = (
+        await client.post(
+            "/wallets",
+            headers=auth_headers,
+            json={
+                "label": "Assets",
+                "address": "0x00000000000000000000000000000000000000ad",
+                "chain_type": "mainnet",
+            },
+        )
+    ).json()
+    mock_summarize.return_value = PortfolioSummary(
+        address=wallet["address"],
+        chains=[],
+        total_usd=12345.67,
+    )
+
+    r = await client.get(f"/wallets/{wallet['id']}/assets", headers=auth_headers)
+    assert r.status_code == 200
+    data = r.json()
+    assert data["address"] == wallet["address"]
+    assert data["total_usd"] == 12345.67
+    mock_summarize.assert_called_once_with(wallet["address"])
+
+
+async def test_get_wallet_assets_manual_wallet_400(
+    client: AsyncClient, auth_headers: dict
+):
+    wallet = (
+        await client.post(
+            "/wallets",
+            headers=auth_headers,
+            json={
+                "label": "Manual",
+                "wallet_type": "manual",
+                "chain_type": "manual",
+            },
+        )
+    ).json()
+    r = await client.get(f"/wallets/{wallet['id']}/assets", headers=auth_headers)
+    assert r.status_code == 400
+    assert r.json()["detail"] == "Multi-chain assets are available for EVM wallets only"
+
+
+async def test_get_wallet_assets_other_user_404(client: AsyncClient):
+    h1 = await _register_and_login(client, "w-assets-owner@example.com")
+    h2 = await _register_and_login(client, "w-assets-other@example.com")
+    wallet = (
+        await client.post(
+            "/wallets",
+            headers=h1,
+            json={
+                "label": "Private",
+                "address": "0x00000000000000000000000000000000000000ae",
+                "chain_type": "mainnet",
+            },
+        )
+    ).json()
+    r = await client.get(f"/wallets/{wallet['id']}/assets", headers=h2)
+    assert r.status_code == 404
 
 
 async def test_soft_delete_wallet(client: AsyncClient, auth_headers: dict):
@@ -364,6 +547,57 @@ async def test_snapshot_all_skips_inactive(
     wallet_ids = {s["wallet_id"] for s in r.json()}
     assert active["id"] in wallet_ids
     assert inactive["id"] not in wallet_ids
+
+
+@patch("app.services.snapshot.collect_wallet_balances")
+async def test_snapshot_evm_wallet_collects_all_chains(
+    mock_collect, client: AsyncClient, auth_headers: dict
+):
+    def collect_side_effect(chain: str, _address: str) -> list[BalanceItem]:
+        if chain == "mainnet":
+            return [
+                BalanceItem(
+                    "ETH",
+                    chain,
+                    "0x0000000000000000000000000000000000000000",
+                    Decimal("1"),
+                    Decimal("100"),
+                )
+            ]
+        if chain == "base":
+            return [
+                BalanceItem(
+                    "USDC",
+                    chain,
+                    "0x0000000000000000000000000000000000000001",
+                    Decimal("75"),
+                    Decimal("75"),
+                )
+            ]
+        return []
+
+    mock_collect.side_effect = collect_side_effect
+    wallet = (
+        await client.post(
+            "/wallets",
+            headers=auth_headers,
+            json={
+                "label": "MultiChainSnap",
+                "address": "0x00000000000000000000000000000000000000af",
+                "chain_type": "mainnet",
+            },
+        )
+    ).json()
+
+    r = await client.post(
+        "/snapshot", headers=auth_headers, json={"wallet_id": wallet["id"]}
+    )
+
+    assert r.status_code == 201
+    data = r.json()[0]
+    assert Decimal(data["total_usd"]) == Decimal("175.00000000")
+    assert {b["symbol"] for b in data["balances"]} == {"ETH", "USDC"}
+    assert {call.args[0] for call in mock_collect.call_args_list} == set(CHAIN_RPC)
 
 
 async def test_migration_backfill_attaches_default_group(db_session: AsyncSession):

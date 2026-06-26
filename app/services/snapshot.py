@@ -79,6 +79,14 @@ def collect_wallet_balances(chain: str, address: str) -> list[BalanceItem]:
     return items
 
 
+def collect_evm_wallet_balances(address: str) -> list[BalanceItem]:
+    """Collect balances for the same EVM address across every supported chain."""
+    items: list[BalanceItem] = []
+    for chain in CHAIN_RPC:
+        items.extend(collect_wallet_balances(chain, address))
+    return items
+
+
 async def _get_or_create_asset(session: AsyncSession, item: BalanceItem) -> Asset:
     asset = await session.scalar(
         select(Asset).where(
@@ -101,9 +109,7 @@ async def _get_or_create_asset(session: AsyncSession, item: BalanceItem) -> Asse
 
 async def create_snapshot_for_wallet(session: AsyncSession, wallet: Wallet) -> Snapshot:
     # блокирующий сбор балансов уводим в threadpool, чтобы не стопорить event loop
-    items = await run_in_threadpool(
-        collect_wallet_balances, wallet.chain_type, wallet.address
-    )
+    items = await run_in_threadpool(collect_evm_wallet_balances, wallet.address)
 
     snapshot = Snapshot(wallet_id=wallet.id, total_usd=Decimal("0"))
     session.add(snapshot)
