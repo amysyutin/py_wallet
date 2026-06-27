@@ -19,12 +19,9 @@ First public version of the crypto portfolio service.
 - FastAPI service with async PostgreSQL persistence and Alembic migrations.
 - EVM portfolio aggregation across Ethereum Mainnet, Base, BNB Chain, Arbitrum,
   and Linea (native token, USDT, USDC).
-- Binance Spot and Simple Earn (Flexible/Locked) balance aggregation.
-- USD valuation via Binance public prices and CoinGecko native token prices.
+- USD valuation via RPC token balances and CoinGecko native token prices.
 - JWT authentication: user registration, login, and `/auth/me`.
-- Role model with admin-only `/binance/balance`; `promote-admin` CLI command.
 - Per-user wallets, balance snapshots, portfolio history, and portfolio summary.
-- Public `/demo/binance/balance` endpoint with fixed mock data (no external calls).
 - Split health endpoints: `/health`, `/health/live`, `/health/ready`.
 - Prometheus `/metrics` endpoint via instrumentator.
 - Docker image and Docker Compose stack for local development.
@@ -38,7 +35,6 @@ First public version of the crypto portfolio service.
 
 - JWT secret hardening: environment-aware validation, insecure placeholders
   rejected in staging/production, dev-only implicit secret with a startup warning.
-- Real Binance account endpoint gated behind the admin role.
 
 ### Known limitations
 

@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.config import CHAIN_RPC
 
-SUPPORTED_CHAINS = set(CHAIN_RPC) | {"binance"}
+SUPPORTED_CHAINS = set(CHAIN_RPC)
 
 
 def validate_wallet_network_state(

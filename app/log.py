@@ -4,8 +4,6 @@ import re
 from app import config
 
 _SECRET_NAMES = [
-    "BINANCE_API_KEY",
-    "BINANCE_API_SECRET",
     "ADDRESS_EVM",
     "RPC_URL_MAIN",
     "RPC_URL_BASE",
@@ -15,10 +13,7 @@ _SECRET_NAMES = [
 ]
 
 _KEY_NAME_PATTERNS = [
-    re.compile(
-        r"(?i)(JWT_SECRET|jwt_secret|BINANCE_SECRET|BINANCE_API_KEY|Authorization)"
-        r"\s*[=:]\s*\S+"
-    ),
+    re.compile(r"(?i)(JWT_SECRET|jwt_secret|Authorization)\s*[=:]\s*\S+"),
     re.compile(r"(?i)Bearer\s+[A-Za-z0-9\-_\.]+"),
 ]
 
