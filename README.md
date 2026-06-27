@@ -2,10 +2,9 @@
 
 FastAPI service for aggregating and monitoring a crypto portfolio.
 
-The app collects balances from EVM networks and Binance, calculates USD values,
-and stores wallet snapshots in PostgreSQL. Supported EVM networks are Ethereum
-Mainnet, Base, BNB Chain, Arbitrum, and Linea. Binance support covers Spot,
-Simple Earn Flexible, and Simple Earn Locked positions.
+The app collects balances from EVM networks, calculates USD values, and stores
+wallet snapshots in PostgreSQL. Supported EVM networks are Ethereum Mainnet,
+Base, BNB Chain, Arbitrum, and Linea.
 
 The application repository contains the service code, database migrations,
 tests, Docker image, and CI pipeline. Kubernetes manifests are maintained in the
@@ -15,8 +14,7 @@ separate `amysyutin/py_wallet-infra` repository.
 
 - EVM portfolio aggregation across multiple chains.
 - Native token, USDT, and USDC balance tracking.
-- Binance Spot and Earn balance aggregation.
-- USD valuation through Binance public prices and CoinGecko native token prices.
+- USD valuation through RPC token balances and CoinGecko native token prices.
 - PostgreSQL persistence with Alembic migrations.
 - User registration and JWT authentication.
 - Per-user wallets, balance snapshots, portfolio history, and portfolio summary.
@@ -29,7 +27,7 @@ separate `amysyutin/py_wallet-infra` repository.
 py_wallet/
 ├── app/
 │   ├── main.py                       # FastAPI entry point
-│   ├── config.py                     # EVM, Binance, and token configuration
+│   ├── config.py                     # EVM and token configuration
 │   ├── core/
 │   │   ├── config.py                 # Database and JWT settings
 │   │   └── security.py               # Password hashing and JWT helpers
@@ -42,7 +40,7 @@ py_wallet/
 │   │   ├── wallets.py                # User wallet management
 │   │   ├── snapshots.py              # Balance snapshot creation
 │   │   └── portfolio.py              # Portfolio history and summary
-│   ├── connectors/                   # RPC, ERC-20, Binance, and CoinGecko clients
+│   ├── connectors/                   # RPC, ERC-20, and CoinGecko clients
 │   ├── services/                     # Portfolio, snapshot, and admin promote logic
 │   ├── demo/                         # Public demo payloads (no external API calls)
 │   ├── cli/                          # Operational CLI (promote-admin)
@@ -72,7 +70,6 @@ Public endpoints:
 | `POST` | `/auth/register` | Create a user account. |
 | `POST` | `/auth/login` | Return a JWT bearer token. |
 | `GET` | `/assets?address=0x...` | EVM portfolio summary for the provided address. |
-| `GET` | `/demo/binance/balance` | Demo Binance portfolio (`source: demo`, fixed mock data). |
 
 Authenticated endpoints require `Authorization: Bearer <token>`:
 
@@ -97,15 +94,9 @@ Authenticated endpoints require `Authorization: Bearer <token>`:
 | `GET` | `/portfolio?wallet_id=<id>&days=30` | Return snapshot history for a wallet (`total_usd` from multi-chain EVM snapshots). |
 | `GET` | `/portfolio/summary` | Return total USD value and top assets from the latest wallet snapshots. |
 
-Admin endpoints require a JWT for a user with `role=admin` in the database:
-
-| Method | Path | Description |
-| --- | --- | --- |
-| `GET` | `/binance/balance` | Real Binance Spot and Earn portfolio summary (signed API). |
-
 Supported `chain_type` values for EVM wallets are `mainnet`, `base`, `bnb`,
-`arbitrum`, `linea`, and `binance`. Manual wallets use `chain_type=manual`.
-Snapshot collection currently supports EVM wallets only.
+`arbitrum`, and `linea`. Manual wallets use `chain_type=manual`. Snapshot
+collection currently supports EVM wallets only.
 
 For existing EVM wallets, `PATCH /wallets/{id}` accepts `chain_type` and
 `address` (together or separately). `wallet_type` cannot be changed after
@@ -160,9 +151,6 @@ curl -X DELETE http://localhost:8000/wallets/1/balances/1 \
 If `/assets` is called without the `address` query parameter, the app uses
 `EVM1_ADDRESS` from the environment.
 
-Use `/demo/binance/balance` on public demos and frontends. Do not expose
-`/binance/balance` without admin authentication.
-
 ### Admin access
 
 New registrations always receive `role=user`. To grant admin after a user
@@ -200,8 +188,6 @@ cp .env.example .env
 | `JWT_SECRET` | Staging/Production | Secret used to sign access tokens. Required in staging/production (minimum 32 characters). |
 | `JWT_ALG` | No | JWT algorithm. Only `HS256` is allowed. Defaults to `HS256`. |
 | `ACCESS_TOKEN_TTL_MIN` | No | Access token lifetime in minutes. Defaults to `60`. |
-| `BINANCE_API_KEY` | For Binance API | Binance API key used for signed account requests. |
-| `BINANCE_SECRET` | For Binance API | Binance secret used for request signing. |
 | `EVM1_ADDRESS` | For default `/assets` address | Default EVM wallet address. |
 | `RPC_URL_MAINNET` | For Mainnet aggregation | Ethereum Mainnet RPC URL. |
 | `RPC_URL_BASE` | For Base aggregation | Base RPC URL. |

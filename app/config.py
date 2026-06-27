@@ -3,10 +3,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-BINANCE_BASE_URL = "https://api.binance.com"
-
-BINANCE_API_KEY = os.getenv("BINANCE_API_KEY") or ""
-BINANCE_API_SECRET = os.getenv("BINANCE_SECRET") or ""
 ADDRESS_EVM = os.getenv("EVM1_ADDRESS") or ""
 
 RPC_URL_MAIN = os.getenv("RPC_URL_MAINNET", "")

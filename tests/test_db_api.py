@@ -1,5 +1,5 @@
-from unittest.mock import patch
 from decimal import Decimal
+from unittest.mock import patch
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -175,79 +175,3 @@ async def test_register_me_includes_role_user(client: AsyncClient):
     )
     assert me.status_code == 200
     assert me.json()["role"] == "user"
-
-
-async def test_binance_balance_unauthorized(client: AsyncClient):
-    r = await client.get("/binance/balance")
-    assert r.status_code == 401
-
-
-async def test_binance_balance_invalid_bearer_token(client: AsyncClient):
-    r = await client.get(
-        "/binance/balance",
-        headers={"Authorization": "Bearer invalid-token"},
-    )
-    assert r.status_code == 401
-
-
-async def test_binance_balance_forbidden_for_user(
-    client: AsyncClient, auth_headers: dict
-):
-    r = await client.get("/binance/balance", headers=auth_headers)
-    assert r.status_code == 403
-    assert r.json()["detail"] == "Admin access required"
-
-
-@patch("app.routes.summarize_binance_usdt")
-async def test_binance_balance_ok_for_admin(
-    mock_service, client: AsyncClient, admin_headers: dict
-):
-    mock_service.return_value = {
-        "assets": [{"asset": "BTC", "amount": 0.1, "usd": 5000}],
-        "total_usdt": 5000.0,
-    }
-    r = await client.get("/binance/balance", headers=admin_headers)
-    assert r.status_code == 200
-    assert r.json()["total_usdt"] == 5000.0
-
-
-@patch("app.routes.summarize_binance_usdt")
-async def test_binance_balance_empty(
-    mock_service, client: AsyncClient, admin_headers: dict
-):
-    mock_service.return_value = {"assets": [], "total_usdt": 0.0}
-    r = await client.get("/binance/balance", headers=admin_headers)
-    assert r.status_code == 200
-    assert r.json()["total_usdt"] == 0.0
-
-
-@patch("app.routes.summarize_binance_usdt")
-async def test_binance_balance_error_response(
-    mock_service, client: AsyncClient, admin_headers: dict
-):
-    mock_service.return_value = {
-        "error": "Connection failed",
-        "assets": [],
-        "total_usdt": 0.0,
-    }
-    r = await client.get("/binance/balance", headers=admin_headers)
-    assert r.status_code == 200
-    assert r.json()["error"] == "Connection failed"
-
-
-@patch("app.routes.summarize_binance_usdt")
-async def test_binance_balance_multiple_assets(
-    mock_service, client: AsyncClient, admin_headers: dict
-):
-    mock_service.return_value = {
-        "assets": [
-            {"asset": "BTC", "amount": 0.1, "usd": 5000},
-            {"asset": "ETH", "amount": 2.0, "usd": 6000},
-            {"asset": "USDT", "amount": 100, "usd": 100},
-        ],
-        "total_usdt": 11100.0,
-    }
-    r = await client.get("/binance/balance", headers=admin_headers)
-    data = r.json()
-    assert len(data["assets"]) == 3
-    assert data["total_usdt"] == 11100.0
