@@ -1,0 +1,343 @@
+from __future__ import annotations
+
+from collections import defaultdict
+from dataclasses import dataclass, field
+from datetime import datetime
+from decimal import Decimal
+
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.db.models.manual_balance import ManualBalance
+from app.db.models.snapshot_service import (
+    ChainSnapshot,
+    SnapshotBalanceSnapshot,
+    SnapshotRun,
+    WalletSnapshot,
+)
+from app.db.models.wallet import Wallet
+from app.db.models.wallet_group import WalletGroup
+from app.schemas.wallet import (
+    WalletAssetDetail,
+    WalletDetailSummary,
+    WalletRead,
+    WalletSnapshotRead,
+    WalletSummaryRead,
+    WalletTopAsset,
+)
+
+SNAPSHOT_READ_STATUSES = ("success", "partial_success")
+TOP_ASSETS_LIMIT = 5
+
+
+@dataclass
+class _AssetAgg:
+    amount: Decimal = Decimal("0")
+    usd_value: Decimal = Decimal("0")
+    price_usd: Decimal | None = None
+    chain: str = "manual"
+
+
+@dataclass
+class _WalletBalanceInfo:
+    balance_usd: Decimal = Decimal("0")
+    balance_source: str = "none"
+    last_snapshot_at: datetime | None = None
+    balances_count: int = 0
+    top_assets: list[WalletTopAsset] = field(default_factory=list)
+    assets: list[WalletAssetDetail] = field(default_factory=list)
+    wallet_snapshot_id: int | None = None
+
+
+def _manual_value(amount: Decimal, price_usd: Decimal | None) -> Decimal:
+    return amount * (price_usd if price_usd is not None else Decimal("0"))
+
+
+async def _latest_wallet_snapshot_ids(
+    session: AsyncSession, wallet_ids: list[int]
+) -> dict[int, int]:
+    """Return wallet_id -> max WalletSnapshot.id for readable statuses."""
+    if not wallet_ids:
+        return {}
+    rows = await session.execute(
+        select(WalletSnapshot.wallet_id, func.max(WalletSnapshot.id))
+        .where(
+            WalletSnapshot.wallet_id.in_(wallet_ids),
+            WalletSnapshot.status.in_(SNAPSHOT_READ_STATUSES),
+        )
+        .group_by(WalletSnapshot.wallet_id)
+    )
+    return {wallet_id: snapshot_id for wallet_id, snapshot_id in rows}
+
+
+async def _load_snapshot_assets(
+    session: AsyncSession, snapshot_ids: list[int]
+) -> dict[int, list[tuple[str, str, Decimal, Decimal, Decimal | None]]]:
+    """wallet_snapshot_id -> list of (symbol, chain, amount, value_usd, price_usd)."""
+    if not snapshot_ids:
+        return {}
+    rows = await session.execute(
+        select(
+            ChainSnapshot.wallet_snapshot_id,
+            SnapshotBalanceSnapshot.asset_symbol,
+            ChainSnapshot.chain,
+            SnapshotBalanceSnapshot.amount,
+            SnapshotBalanceSnapshot.value_usd,
+            SnapshotBalanceSnapshot.price_usd,
+        )
+        .join(
+            SnapshotBalanceSnapshot,
+            SnapshotBalanceSnapshot.chain_snapshot_id == ChainSnapshot.id,
+        )
+        .where(ChainSnapshot.wallet_snapshot_id.in_(snapshot_ids))
+    )
+    by_snapshot: dict[
+        int, list[tuple[str, str, Decimal, Decimal, Decimal | None]]
+    ] = defaultdict(list)
+    for row in rows:
+        by_snapshot[row.wallet_snapshot_id].append(
+            (
+                row.asset_symbol,
+                row.chain,
+                row.amount,
+                row.value_usd,
+                row.price_usd,
+            )
+        )
+    return by_snapshot
+
+
+async def _load_snapshot_meta(
+    session: AsyncSession, snapshot_ids: list[int]
+) -> dict[int, tuple[Decimal, datetime | None]]:
+    """wallet_snapshot_id -> (total_usd, snapshot_at)."""
+    if not snapshot_ids:
+        return {}
+    snapshot_at = func.coalesce(SnapshotRun.finished_at, SnapshotRun.created_at)
+    rows = await session.execute(
+        select(
+            WalletSnapshot.id,
+            WalletSnapshot.total_usd,
+            snapshot_at.label("snapshot_at"),
+        )
+        .join(SnapshotRun, SnapshotRun.id == WalletSnapshot.snapshot_run_id)
+        .where(WalletSnapshot.id.in_(snapshot_ids))
+    )
+    return {
+        row.id: (row.total_usd, row.snapshot_at)
+        for row in rows
+    }
+
+
+async def _load_manual_assets(
+    session: AsyncSession, wallet_ids: list[int]
+) -> dict[int, list[tuple[str, str, Decimal, Decimal, Decimal | None]]]:
+    """wallet_id -> list of (symbol, chain, amount, value_usd, price_usd)."""
+    if not wallet_ids:
+        return {}
+    rows = await session.execute(
+        select(ManualBalance)
+        .options(selectinload(ManualBalance.asset))
+        .where(ManualBalance.wallet_id.in_(wallet_ids))
+    )
+    by_wallet: dict[
+        int, list[tuple[str, str, Decimal, Decimal, Decimal | None]]
+    ] = defaultdict(list)
+    for balance in rows.scalars():
+        asset = balance.asset
+        value = _manual_value(balance.amount, balance.price_usd)
+        by_wallet[balance.wallet_id].append(
+            (
+                asset.symbol,
+                asset.chain,
+                balance.amount,
+                value,
+                balance.price_usd,
+            )
+        )
+    return by_wallet
+
+
+def _aggregate_symbol_assets(
+    items: list[tuple[str, str, Decimal, Decimal, Decimal | None]],
+) -> dict[str, _AssetAgg]:
+    is_agg: dict[str, _AssetAgg] = {}
+    for symbol, chain, amount, value_usd, price_usd in items:
+        current = is_agg.get(symbol)
+        if current is None:
+            is_agg[symbol] = _AssetAgg(
+                amount=amount,
+                usd_value=value_usd,
+                price_usd=price_usd,
+                chain=chain,
+            )
+        else:
+            current.amount += amount
+            current.usd_value += value_usd
+            if current.price_usd is None:
+                current.price_usd = price_usd
+    return is_agg
+
+
+def _top_assets_from_agg(agg: dict[str, _AssetAgg], limit: int = TOP_ASSETS_LIMIT) -> list[WalletTopAsset]:
+    ordered = sorted(agg.items(), key=lambda item: item[1].usd_value, reverse=True)
+    return [
+        WalletTopAsset(
+            symbol=symbol,
+            amount=data.amount,
+            usd_value=data.usd_value,
+        )
+        for symbol, data in ordered[:limit]
+    ]
+
+
+def _detail_assets_from_items(
+    items: list[tuple[str, str, Decimal, Decimal, Decimal | None]],
+) -> list[WalletAssetDetail]:
+    return [
+        WalletAssetDetail(
+            symbol=symbol,
+            chain=chain,
+            amount=amount,
+            usd_value=value_usd,
+            price_usd=price_usd,
+        )
+        for symbol, chain, amount, value_usd, price_usd in sorted(
+            items, key=lambda item: item[3], reverse=True
+        )
+    ]
+
+
+async def build_wallet_balance_info(
+    session: AsyncSession, wallets: list[Wallet]
+) -> dict[int, _WalletBalanceInfo]:
+    wallet_ids = [w.id for w in wallets]
+    latest_by_wallet = await _latest_wallet_snapshot_ids(session, wallet_ids)
+    snapshot_ids = list(latest_by_wallet.values())
+    snapshot_meta = await _load_snapshot_meta(session, snapshot_ids)
+    snapshot_assets = await _load_snapshot_assets(session, snapshot_ids)
+
+    needs_manual = [
+        w.id
+        for w in wallets
+        if w.id not in latest_by_wallet and w.wallet_type == "manual"
+    ]
+    manual_assets = await _load_manual_assets(session, needs_manual)
+
+    result: dict[int, _WalletBalanceInfo] = {}
+    for wallet in wallets:
+        info = _WalletBalanceInfo()
+        snapshot_id = latest_by_wallet.get(wallet.id)
+        if snapshot_id is not None:
+            total_usd, snapshot_at = snapshot_meta[snapshot_id]
+            items = snapshot_assets.get(snapshot_id, [])
+            agg = _aggregate_symbol_assets(items)
+            info.balance_usd = total_usd
+            info.balance_source = "latest_snapshot"
+            info.last_snapshot_at = snapshot_at
+            info.balances_count = len(items)
+            info.top_assets = _top_assets_from_agg(agg)
+            info.assets = _detail_assets_from_items(items)
+            info.wallet_snapshot_id = snapshot_id
+        elif wallet.wallet_type == "manual":
+            items = manual_assets.get(wallet.id, [])
+            if items:
+                agg = _aggregate_symbol_assets(items)
+                info.balance_usd = sum(
+                    (item.usd_value for item in agg.values()), Decimal("0")
+                )
+                info.balance_source = "manual"
+                info.balances_count = len(items)
+                info.top_assets = _top_assets_from_agg(agg)
+                info.assets = _detail_assets_from_items(items)
+        result[wallet.id] = info
+    return result
+
+
+async def _group_names(
+    session: AsyncSession, wallets: list[Wallet]
+) -> dict[int, str]:
+    group_ids = {w.group_id for w in wallets if w.group_id is not None}
+    if not group_ids:
+        return {}
+    rows = await session.execute(
+        select(WalletGroup.id, WalletGroup.name).where(WalletGroup.id.in_(group_ids))
+    )
+    return {group_id: name for group_id, name in rows}
+
+
+async def build_wallet_summaries(
+    session: AsyncSession, wallets: list[Wallet]
+) -> list[WalletSummaryRead]:
+    if not wallets:
+        return []
+    balance_info = await build_wallet_balance_info(session, wallets)
+    groups = await _group_names(session, wallets)
+    summaries: list[WalletSummaryRead] = []
+    for wallet in wallets:
+        info = balance_info[wallet.id]
+        summaries.append(
+            WalletSummaryRead(
+                id=wallet.id,
+                label=wallet.label,
+                wallet_type=wallet.wallet_type,
+                chain_type=wallet.chain_type,
+                address=wallet.address,
+                group_id=wallet.group_id,
+                group_name=groups.get(wallet.group_id) if wallet.group_id else None,
+                is_active=wallet.is_active,
+                balance_usd=info.balance_usd,
+                balance_source=info.balance_source,  # type: ignore[arg-type]
+                last_snapshot_at=info.last_snapshot_at,
+                balances_count=info.balances_count,
+                top_assets=info.top_assets,
+                created_at=wallet.created_at,
+                updated_at=wallet.updated_at,
+            )
+        )
+    return summaries
+
+
+async def build_wallet_detail_summary(
+    session: AsyncSession, wallet: Wallet
+) -> WalletDetailSummary:
+    info = (await build_wallet_balance_info(session, [wallet]))[wallet.id]
+    return WalletDetailSummary(
+        wallet=WalletRead.model_validate(wallet),
+        balance_usd=info.balance_usd,
+        last_snapshot_at=info.last_snapshot_at,
+        assets=info.assets,
+    )
+
+
+async def list_wallet_snapshots(
+    session: AsyncSession,
+    wallet_id: int,
+    *,
+    limit: int = 30,
+) -> list[WalletSnapshotRead]:
+    snapshot_at = func.coalesce(SnapshotRun.finished_at, SnapshotRun.created_at)
+    rows = await session.execute(
+        select(
+            WalletSnapshot.id,
+            WalletSnapshot.snapshot_run_id,
+            WalletSnapshot.status,
+            WalletSnapshot.total_usd,
+            snapshot_at.label("snapshot_at"),
+        )
+        .join(SnapshotRun, SnapshotRun.id == WalletSnapshot.snapshot_run_id)
+        .where(WalletSnapshot.wallet_id == wallet_id)
+        .order_by(snapshot_at.desc(), WalletSnapshot.id.desc())
+        .limit(limit)
+    )
+    return [
+        WalletSnapshotRead(
+            id=row.id,
+            snapshot_run_id=row.snapshot_run_id,
+            status=row.status,
+            total_usd=row.total_usd,
+            snapshot_at=row.snapshot_at,
+        )
+        for row in rows
+    ]

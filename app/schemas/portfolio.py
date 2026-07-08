@@ -10,7 +10,8 @@ class PortfolioPoint(BaseModel):
 
 
 class PortfolioHistory(BaseModel):
-    wallet_id: int
+    wallet_id: int | None = None
+    group_id: int | None = None
     days: int
     points: list[PortfolioPoint]
 
@@ -24,4 +25,6 @@ class AssetShare(BaseModel):
 class PortfolioSummary(BaseModel):
     total_usd: Decimal
     wallets_count: int
+    active_wallets_count: int
+    last_snapshot_at: datetime | None = None
     top_assets: list[AssetShare]

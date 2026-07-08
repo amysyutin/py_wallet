@@ -10,6 +10,31 @@ from app.connectors.price.coingecko import (
 
 def summarize_chain(chain: str, address: str) -> ChainSummary:
     rpc_url = CHAIN_RPC.get(chain, "")
+    if not rpc_url:
+        return ChainSummary(
+            chain=chain,
+            native_symbol=NATIVE_SYMBOL.get(chain, "NATIVE"),
+            native_amount=0.0,
+            usdt_amount=0.0,
+            usdc_amount=0.0,
+            tokens=[],
+            status="skipped",
+            error_type="missing_rpc_url",
+            error_message=f"RPC URL is not configured for chain '{chain}'",
+        )
+    if not address:
+        return ChainSummary(
+            chain=chain,
+            native_symbol=NATIVE_SYMBOL.get(chain, "NATIVE"),
+            native_amount=0.0,
+            usdt_amount=0.0,
+            usdc_amount=0.0,
+            tokens=[],
+            status="skipped",
+            error_type="missing_address",
+            error_message="Wallet address is empty",
+        )
+
     native_wei = get_balance(rpc_url, address) if rpc_url and address else 0
     native_amount = native_wei / 10**18
 
@@ -57,6 +82,8 @@ def summarize_all(address: str) -> PortfolioSummary:
     for chain in CHAIN_RPC:
         cs = summarize_chain(chain, address)
         chains.append(cs)
+        if cs.status != "ok":
+            continue
         native_usd = cs.native_amount * get_native_price_usd_cached(chain)
         usdt_usd = cs.usdt_amount
         usdc_usd = cs.usdc_amount

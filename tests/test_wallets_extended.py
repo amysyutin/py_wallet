@@ -1,19 +1,17 @@
 """Tests for extended wallet CRUD and migration backfill behavior."""
 
-from decimal import Decimal
 from unittest.mock import patch
 
 from httpx import AsyncClient
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import CHAIN_RPC
 from app.core.security import hash_password
 from app.db.models.user import User
 from app.db.models.wallet import Wallet
 from app.db.models.wallet_group import WalletGroup
 from app.models import PortfolioSummary
-from app.services.snapshot import BalanceItem
+from app.services.snapshot_jobs import SnapshotJobResult
 
 
 async def _register_and_login(client: AsyncClient, email: str) -> dict[str, str]:
@@ -489,7 +487,10 @@ async def test_list_wallets_active_only_default(
     assert {w["id"] for w in all_list} == {active["id"], inactive["id"]}
 
 
-@patch("app.services.snapshot.collect_wallet_balances", return_value=[])
+@patch(
+    "app.routers.snapshots.create_snapshot_job",
+    return_value=SnapshotJobResult(job_id=123, status="pending"),
+)
 async def test_snapshot_inactive_wallet_400(
     _mock, client: AsyncClient, auth_headers: dict
 ):
@@ -514,11 +515,14 @@ async def test_snapshot_inactive_wallet_400(
     assert r.json()["detail"] == "Wallet is inactive"
 
 
-@patch("app.services.snapshot.collect_wallet_balances", return_value=[])
-async def test_snapshot_all_skips_inactive(
-    _mock, client: AsyncClient, auth_headers: dict
+@patch(
+    "app.routers.snapshots.create_snapshot_job",
+    return_value=SnapshotJobResult(job_id=124, status="pending"),
+)
+async def test_snapshot_all_scope_creates_job(
+    mock_create_job, client: AsyncClient, auth_headers: dict
 ):
-    active = (
+    _active = (
         await client.post(
             "/wallets",
             headers=auth_headers,
@@ -543,40 +547,18 @@ async def test_snapshot_all_skips_inactive(
     await client.delete(f"/wallets/{inactive['id']}", headers=auth_headers)
 
     r = await client.post("/snapshot", headers=auth_headers, json={})
-    assert r.status_code == 201
-    wallet_ids = {s["wallet_id"] for s in r.json()}
-    assert active["id"] in wallet_ids
-    assert inactive["id"] not in wallet_ids
+    assert r.status_code == 202
+    assert r.json() == {"job_id": 124, "status": "pending"}
+    assert mock_create_job.call_args.kwargs["wallet_id"] is None
 
 
-@patch("app.services.snapshot.collect_wallet_balances")
-async def test_snapshot_evm_wallet_collects_all_chains(
-    mock_collect, client: AsyncClient, auth_headers: dict
+@patch(
+    "app.routers.snapshots.create_snapshot_job",
+    return_value=SnapshotJobResult(job_id=125, status="pending"),
+)
+async def test_snapshot_wallet_scope_creates_job(
+    mock_create_job, client: AsyncClient, auth_headers: dict
 ):
-    def collect_side_effect(chain: str, _address: str) -> list[BalanceItem]:
-        if chain == "mainnet":
-            return [
-                BalanceItem(
-                    "ETH",
-                    chain,
-                    "0x0000000000000000000000000000000000000000",
-                    Decimal("1"),
-                    Decimal("100"),
-                )
-            ]
-        if chain == "base":
-            return [
-                BalanceItem(
-                    "USDC",
-                    chain,
-                    "0x0000000000000000000000000000000000000001",
-                    Decimal("75"),
-                    Decimal("75"),
-                )
-            ]
-        return []
-
-    mock_collect.side_effect = collect_side_effect
     wallet = (
         await client.post(
             "/wallets",
@@ -593,11 +575,9 @@ async def test_snapshot_evm_wallet_collects_all_chains(
         "/snapshot", headers=auth_headers, json={"wallet_id": wallet["id"]}
     )
 
-    assert r.status_code == 201
-    data = r.json()[0]
-    assert Decimal(data["total_usd"]) == Decimal("175.00000000")
-    assert {b["symbol"] for b in data["balances"]} == {"ETH", "USDC"}
-    assert {call.args[0] for call in mock_collect.call_args_list} == set(CHAIN_RPC)
+    assert r.status_code == 202
+    assert r.json() == {"job_id": 125, "status": "pending"}
+    assert mock_create_job.call_args.kwargs["wallet_id"] == wallet["id"]
 
 
 async def test_migration_backfill_attaches_default_group(db_session: AsyncSession):
@@ -642,3 +622,295 @@ async def test_migration_backfill_attaches_default_group(db_session: AsyncSessio
     assert group is not None
     assert group.name == "Default"
     assert group.user_id == wallet.user_id
+
+
+async def test_list_wallets_summary_fields(
+    client: AsyncClient, auth_headers: dict, db_session: AsyncSession
+):
+    from datetime import datetime, timezone
+    from decimal import Decimal
+
+    from app.db.models.snapshot_service import (
+        ChainSnapshot,
+        SnapshotBalanceSnapshot,
+        SnapshotRun,
+        WalletSnapshot,
+    )
+
+    group = (
+        await client.post(
+            "/wallet-groups",
+            headers=auth_headers,
+            json={"name": "SummaryGroup"},
+        )
+    ).json()
+    wallet = (
+        await client.post(
+            "/wallets",
+            headers=auth_headers,
+            json={
+                "label": "WithSnap",
+                "address": "0x00000000000000000000000000000000000000c1",
+                "chain_type": "mainnet",
+                "group_id": group["id"],
+            },
+        )
+    ).json()
+
+    db_wallet = await db_session.get(Wallet, wallet["id"])
+    assert db_wallet is not None
+    run = SnapshotRun(
+        user_id=db_wallet.user_id,
+        wallet_id=db_wallet.id,
+        trigger_type="manual",
+        scope_type="wallet",
+        status="success",
+        finished_at=datetime.now(timezone.utc),
+    )
+    db_session.add(run)
+    await db_session.flush()
+    ws = WalletSnapshot(
+        snapshot_run_id=run.id,
+        wallet_id=db_wallet.id,
+        wallet_type="evm",
+        status="success",
+        total_usd=Decimal("150"),
+    )
+    db_session.add(ws)
+    await db_session.flush()
+    cs = ChainSnapshot(
+        wallet_snapshot_id=ws.id,
+        chain="mainnet",
+        status="success",
+        total_usd=Decimal("150"),
+    )
+    db_session.add(cs)
+    await db_session.flush()
+    db_session.add(
+        SnapshotBalanceSnapshot(
+            chain_snapshot_id=cs.id,
+            asset_symbol="ETH",
+            amount=Decimal("0.5"),
+            price_usd=Decimal("300"),
+            value_usd=Decimal("150"),
+            price_source="test",
+        )
+    )
+    await db_session.flush()
+
+    lst = await client.get("/wallets", headers=auth_headers)
+    assert lst.status_code == 200
+    item = next(w for w in lst.json() if w["id"] == wallet["id"])
+    assert Decimal(item["balance_usd"]) == Decimal("150")
+    assert item["balance_source"] == "latest_snapshot"
+    assert item["group_name"] == "SummaryGroup"
+    assert item["balances_count"] == 1
+    assert item["top_assets"][0]["symbol"] == "ETH"
+    assert item["last_snapshot_at"] is not None
+
+
+async def test_list_wallets_filters(client: AsyncClient, auth_headers: dict):
+    group = (
+        await client.post(
+            "/wallet-groups",
+            headers=auth_headers,
+            json={"name": "FilterGroup"},
+        )
+    ).json()
+    evm = (
+        await client.post(
+            "/wallets",
+            headers=auth_headers,
+            json={
+                "label": "EVMFilter",
+                "address": "0x00000000000000000000000000000000000000c2",
+                "chain_type": "base",
+                "group_id": group["id"],
+            },
+        )
+    ).json()
+    await client.post(
+        "/wallets",
+        headers=auth_headers,
+        json={
+            "label": "ManualFilter",
+            "wallet_type": "manual",
+            "chain_type": "manual",
+        },
+    )
+
+    by_group = (
+        await client.get(f"/wallets?group_id={group['id']}", headers=auth_headers)
+    ).json()
+    assert [w["id"] for w in by_group] == [evm["id"]]
+
+    by_type = (
+        await client.get("/wallets?wallet_type=manual", headers=auth_headers)
+    ).json()
+    assert all(w["wallet_type"] == "manual" for w in by_type)
+
+    by_chain = (
+        await client.get("/wallets?chain_type=base", headers=auth_headers)
+    ).json()
+    assert [w["id"] for w in by_chain] == [evm["id"]]
+
+
+async def test_wallet_summary_and_snapshots(
+    client: AsyncClient, auth_headers: dict, db_session: AsyncSession
+):
+    from datetime import datetime, timezone
+    from decimal import Decimal
+
+    from app.db.models.snapshot_service import (
+        ChainSnapshot,
+        SnapshotBalanceSnapshot,
+        SnapshotRun,
+        WalletSnapshot,
+    )
+
+    wallet = (
+        await client.post(
+            "/wallets",
+            headers=auth_headers,
+            json={
+                "label": "Detail",
+                "address": "0x00000000000000000000000000000000000000c3",
+                "chain_type": "mainnet",
+            },
+        )
+    ).json()
+    db_wallet = await db_session.get(Wallet, wallet["id"])
+    assert db_wallet is not None
+    now = datetime.now(timezone.utc)
+    run = SnapshotRun(
+        user_id=db_wallet.user_id,
+        wallet_id=db_wallet.id,
+        trigger_type="manual",
+        scope_type="wallet",
+        status="success",
+        finished_at=now,
+    )
+    db_session.add(run)
+    await db_session.flush()
+    ws = WalletSnapshot(
+        snapshot_run_id=run.id,
+        wallet_id=db_wallet.id,
+        wallet_type="evm",
+        status="success",
+        total_usd=Decimal("80"),
+    )
+    db_session.add(ws)
+    await db_session.flush()
+    cs = ChainSnapshot(
+        wallet_snapshot_id=ws.id,
+        chain="mainnet",
+        status="success",
+        total_usd=Decimal("80"),
+    )
+    db_session.add(cs)
+    await db_session.flush()
+    db_session.add(
+        SnapshotBalanceSnapshot(
+            chain_snapshot_id=cs.id,
+            asset_symbol="USDC",
+            amount=Decimal("80"),
+            price_usd=Decimal("1"),
+            value_usd=Decimal("80"),
+            price_source="test",
+        )
+    )
+    await db_session.flush()
+
+    summary = await client.get(
+        f"/wallets/{wallet['id']}/summary", headers=auth_headers
+    )
+    assert summary.status_code == 200
+    data = summary.json()
+    assert data["wallet"]["id"] == wallet["id"]
+    assert Decimal(data["balance_usd"]) == Decimal("80")
+    assert data["assets"][0]["symbol"] == "USDC"
+    assert data["assets"][0]["chain"] == "mainnet"
+
+    snaps = await client.get(
+        f"/wallets/{wallet['id']}/snapshots", headers=auth_headers
+    )
+    assert snaps.status_code == 200
+    assert len(snaps.json()) == 1
+    assert Decimal(snaps.json()[0]["total_usd"]) == Decimal("80")
+
+
+async def test_restore_wallet(client: AsyncClient, auth_headers: dict):
+    wallet = (
+        await client.post(
+            "/wallets",
+            headers=auth_headers,
+            json={
+                "label": "RestoreMe",
+                "address": "0x00000000000000000000000000000000000000c4",
+                "chain_type": "mainnet",
+            },
+        )
+    ).json()
+    await client.delete(f"/wallets/{wallet['id']}", headers=auth_headers)
+    r = await client.post(f"/wallets/{wallet['id']}/restore", headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json()["is_active"] is True
+
+
+async def test_manual_wallet_summary_fallback(
+    client: AsyncClient, auth_headers: dict
+):
+    from decimal import Decimal
+
+    wallet = (
+        await client.post(
+            "/wallets",
+            headers=auth_headers,
+            json={
+                "label": "ManualSum",
+                "wallet_type": "manual",
+                "chain_type": "manual",
+            },
+        )
+    ).json()
+    await client.put(
+        f"/wallets/{wallet['id']}/balances",
+        headers=auth_headers,
+        json={
+            "balances": [
+                {"symbol": "BTC", "amount": "2", "price_usd": "10000"},
+            ]
+        },
+    )
+    lst = (await client.get("/wallets", headers=auth_headers)).json()
+    item = next(w for w in lst if w["id"] == wallet["id"])
+    assert item["balance_source"] == "manual"
+    assert Decimal(item["balance_usd"]) == Decimal("20000")
+    assert item["top_assets"][0]["symbol"] == "BTC"
+
+
+@patch(
+    "app.routers.wallets.create_snapshot_job",
+    return_value=SnapshotJobResult(job_id=200, status="pending"),
+)
+async def test_post_wallet_snapshots_shortcut(
+    mock_create_job, client: AsyncClient, auth_headers: dict
+):
+    wallet = (
+        await client.post(
+            "/wallets",
+            headers=auth_headers,
+            json={
+                "label": "SnapShortcut",
+                "address": "0x00000000000000000000000000000000000000c5",
+                "chain_type": "mainnet",
+            },
+        )
+    ).json()
+    r = await client.post(
+        f"/wallets/{wallet['id']}/snapshots", headers=auth_headers
+    )
+    assert r.status_code == 202
+    assert r.json() == {"job_id": 200, "status": "pending"}
+    assert mock_create_job.call_args.kwargs["scope_type"] == "wallet"
+    assert mock_create_job.call_args.kwargs["wallet_id"] == wallet["id"]

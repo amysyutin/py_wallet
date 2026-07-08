@@ -1,45 +1,25 @@
 from fastapi import APIRouter, HTTPException, status
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 
-from app.config import CHAIN_RPC
-from app.db.models.asset import Asset
-from app.db.models.balance_snapshot import BalanceSnapshot
-from app.db.models.snapshot import Snapshot
+from app.core.config import get_settings
 from app.db.models.wallet import Wallet
+from app.db.models.wallet_group import WalletGroup
 from app.deps import CurrentUser, SessionDep
-from app.schemas.snapshot import BalanceRead, SnapshotCreate, SnapshotRead
-from app.services.snapshot import create_snapshot_for_wallet
+from app.schemas.snapshot import SnapshotCreate, SnapshotJobRead
+from app.services.snapshot_jobs import SnapshotServiceError, create_snapshot_job
 
-router = APIRouter(prefix="/snapshot", tags=["snapshot"])
-
-
-async def _serialize_snapshot(session: SessionDep, snapshot: Snapshot) -> SnapshotRead:
-    rows = await session.execute(
-        select(Asset.symbol, BalanceSnapshot.amount, BalanceSnapshot.usd_value)
-        .join(Asset, Asset.id == BalanceSnapshot.asset_id)
-        .where(BalanceSnapshot.snapshot_id == snapshot.id)
-        .order_by(BalanceSnapshot.usd_value.desc())
-    )
-    balances = [
-        BalanceRead(symbol=r.symbol, amount=r.amount, usd_value=r.usd_value)
-        for r in rows
-    ]
-    return SnapshotRead(
-        id=snapshot.id,
-        wallet_id=snapshot.wallet_id,
-        snapshot_at=snapshot.snapshot_at,
-        total_usd=snapshot.total_usd,
-        balances=balances,
-    )
+router = APIRouter(prefix="/snapshots", tags=["snapshots"])
+legacy_router = APIRouter(prefix="/snapshot", tags=["snapshot"], include_in_schema=False)
 
 
-@router.post("", response_model=list[SnapshotRead], status_code=status.HTTP_201_CREATED)
-async def take_snapshot(
+async def _create_snapshot_for_user(
     payload: SnapshotCreate,
     current_user: CurrentUser,
     session: SessionDep,
-) -> list[SnapshotRead]:
-    if payload.wallet_id is not None:
+) -> SnapshotJobRead:
+    if payload.scope_type == "wallet":
+        assert payload.wallet_id is not None
         wallet = await session.scalar(
             select(Wallet).where(
                 Wallet.id == payload.wallet_id,
@@ -50,26 +30,53 @@ async def take_snapshot(
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Wallet not found")
         if not wallet.is_active:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Wallet is inactive")
-        if wallet.chain_type not in CHAIN_RPC:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
-                f"Snapshot for chain '{wallet.chain_type}' is not supported yet",
-            )
-        wallets = [wallet]
-    else:
-        result = await session.scalars(
-            select(Wallet).where(
-                Wallet.user_id == current_user.id,
-                Wallet.is_active.is_(True),
+    elif payload.scope_type == "group":
+        assert payload.group_id is not None
+        group = await session.scalar(
+            select(WalletGroup).where(
+                WalletGroup.id == payload.group_id,
+                WalletGroup.user_id == current_user.id,
             )
         )
-        wallets = [w for w in result if w.chain_type in CHAIN_RPC]
+        if group is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Wallet group not found")
 
-    if not wallets:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No wallets to snapshot")
+    try:
+        job = await run_in_threadpool(
+            create_snapshot_job,
+            get_settings(),
+            user_id=current_user.id,
+            scope_type=payload.scope_type,
+            wallet_id=payload.wallet_id,
+            group_id=payload.group_id,
+        )
+    except SnapshotServiceError as exc:
+        raise HTTPException(exc.status_code, exc.detail) from exc
 
-    out: list[SnapshotRead] = []
-    for wallet in wallets:
-        snap = await create_snapshot_for_wallet(session, wallet)
-        out.append(await _serialize_snapshot(session, snap))
-    return out
+    return SnapshotJobRead(job_id=job.job_id, status=job.status)
+
+
+@router.post(
+    "",
+    response_model=SnapshotJobRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def create_snapshot(
+    payload: SnapshotCreate,
+    current_user: CurrentUser,
+    session: SessionDep,
+) -> SnapshotJobRead:
+    return await _create_snapshot_for_user(payload, current_user, session)
+
+
+@legacy_router.post(
+    "",
+    response_model=SnapshotJobRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def create_snapshot_legacy(
+    payload: SnapshotCreate,
+    current_user: CurrentUser,
+    session: SessionDep,
+) -> SnapshotJobRead:
+    return await _create_snapshot_for_user(payload, current_user, session)

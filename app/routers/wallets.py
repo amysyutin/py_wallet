@@ -1,15 +1,23 @@
+import asyncio
+
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 
+from app.core.config import get_settings
+from app.log import get_logger
 from app.db.models.wallet import Wallet
 from app.db.models.wallet_group import WalletGroup
 from app.deps import CurrentUser, SessionDep
 from app.models import PortfolioSummary
 from app.schemas.manual_balance import ManualBalancesPut, ManualBalancesRead
+from app.schemas.snapshot import SnapshotJobRead
 from app.schemas.wallet import (
     WalletCreate,
+    WalletDetailSummary,
     WalletRead,
+    WalletSnapshotRead,
+    WalletSummaryRead,
     WalletUpdate,
     validate_wallet_network_state,
 )
@@ -19,8 +27,35 @@ from app.services.manual_balance import (
     upsert_manual_balances,
 )
 from app.services.portfolio import summarize_all
+from app.services.snapshot_jobs import SnapshotServiceError, create_snapshot_job
+from app.services.wallet_view import (
+    build_wallet_detail_summary,
+    build_wallet_summaries,
+    list_wallet_snapshots,
+)
 
 router = APIRouter(prefix="/wallets", tags=["wallets"])
+logger = get_logger(__name__)
+
+
+async def _trigger_wallet_snapshot_background(*, user_id: int, wallet_id: int) -> None:
+    settings = get_settings()
+    try:
+        await run_in_threadpool(
+            create_snapshot_job,
+            settings,
+            user_id=user_id,
+            scope_type="wallet",
+            wallet_id=wallet_id,
+        )
+    except SnapshotServiceError:
+        # Wallet creation must not fail due to snapshot service issues.
+        logger.warning(
+            "Auto snapshot trigger failed for wallet_id=%s user_id=%s",
+            wallet_id,
+            user_id,
+        )
+        return
 
 
 async def _get_owned_wallet(
@@ -75,21 +110,39 @@ async def create_wallet(
     session.add(wallet)
     await session.commit()
     await session.refresh(wallet)
+
+    settings = get_settings()
+    if settings.snapshot_auto_on_wallet_create and wallet.is_active:
+        asyncio.create_task(
+            _trigger_wallet_snapshot_background(
+                user_id=current_user.id,
+                wallet_id=wallet.id,
+            )
+        )
     return wallet
 
 
-@router.get("", response_model=list[WalletRead])
+@router.get("", response_model=list[WalletSummaryRead])
 async def list_wallets(
     current_user: CurrentUser,
     session: SessionDep,
     active_only: bool = Query(default=True),
-) -> list[Wallet]:
+    group_id: int | None = Query(default=None),
+    wallet_type: str | None = Query(default=None),
+    chain_type: str | None = Query(default=None),
+) -> list[WalletSummaryRead]:
     query = select(Wallet).where(Wallet.user_id == current_user.id)
     if active_only:
         query = query.where(Wallet.is_active.is_(True))
+    if group_id is not None:
+        query = query.where(Wallet.group_id == group_id)
+    if wallet_type is not None:
+        query = query.where(Wallet.wallet_type == wallet_type)
+    if chain_type is not None:
+        query = query.where(Wallet.chain_type == chain_type)
     query = query.order_by(Wallet.id)
-    result = await session.scalars(query)
-    return list(result)
+    wallets = list(await session.scalars(query))
+    return await build_wallet_summaries(session, wallets)
 
 
 @router.get("/{wallet_id}", response_model=WalletRead)
@@ -102,6 +155,61 @@ async def get_wallet(
     if wallet is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Wallet not found")
     return wallet
+
+
+@router.get("/{wallet_id}/summary", response_model=WalletDetailSummary)
+async def get_wallet_summary(
+    wallet_id: int,
+    current_user: CurrentUser,
+    session: SessionDep,
+) -> WalletDetailSummary:
+    wallet = await _get_owned_wallet(session, current_user.id, wallet_id)
+    if wallet is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Wallet not found")
+    return await build_wallet_detail_summary(session, wallet)
+
+
+@router.get("/{wallet_id}/snapshots", response_model=list[WalletSnapshotRead])
+async def get_wallet_snapshots(
+    wallet_id: int,
+    current_user: CurrentUser,
+    session: SessionDep,
+    limit: int = Query(default=30, ge=1, le=100),
+) -> list[WalletSnapshotRead]:
+    wallet = await _get_owned_wallet(session, current_user.id, wallet_id)
+    if wallet is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Wallet not found")
+    return await list_wallet_snapshots(session, wallet.id, limit=limit)
+
+
+@router.post(
+    "/{wallet_id}/snapshots",
+    response_model=SnapshotJobRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def create_wallet_snapshot(
+    wallet_id: int,
+    current_user: CurrentUser,
+    session: SessionDep,
+) -> SnapshotJobRead:
+    wallet = await _get_owned_wallet(session, current_user.id, wallet_id)
+    if wallet is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Wallet not found")
+    if not wallet.is_active:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Wallet is inactive")
+
+    try:
+        job = await run_in_threadpool(
+            create_snapshot_job,
+            get_settings(),
+            user_id=current_user.id,
+            scope_type="wallet",
+            wallet_id=wallet.id,
+        )
+    except SnapshotServiceError as exc:
+        raise HTTPException(exc.status_code, exc.detail) from exc
+
+    return SnapshotJobRead(job_id=job.job_id, status=job.status)
 
 
 @router.patch("/{wallet_id}", response_model=WalletRead)
@@ -152,6 +260,24 @@ async def delete_wallet(
 
     if wallet.is_active:
         wallet.is_active = False
+        await session.commit()
+        await session.refresh(wallet)
+
+    return wallet
+
+
+@router.post("/{wallet_id}/restore", response_model=WalletRead)
+async def restore_wallet(
+    wallet_id: int,
+    current_user: CurrentUser,
+    session: SessionDep,
+) -> Wallet:
+    wallet = await _get_owned_wallet(session, current_user.id, wallet_id)
+    if wallet is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Wallet not found")
+
+    if not wallet.is_active:
+        wallet.is_active = True
         await session.commit()
         await session.refresh(wallet)
 

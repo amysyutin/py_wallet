@@ -1,9 +1,18 @@
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import patch
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models.snapshot_service import (
+    ChainSnapshot,
+    SnapshotBalanceSnapshot,
+    SnapshotRun,
+    WalletSnapshot,
+)
+from app.db.models.wallet import Wallet
 from app.services.admin_promote import PromoteAdminStatus, promote_admin_by_email
+from app.services.snapshot_jobs import SnapshotJobResult
 
 
 async def test_register_and_me(client: AsyncClient):
@@ -100,9 +109,12 @@ async def test_wallets_create_and_list(client: AsyncClient, auth_headers: dict):
     assert wallet_id in [w["id"] for w in lst.json()]
 
 
-@patch("app.services.snapshot.collect_wallet_balances", return_value=[])
+@patch(
+    "app.routers.snapshots.create_snapshot_job",
+    return_value=SnapshotJobResult(job_id=123, status="pending"),
+)
 async def test_snapshot_empty_balances(
-    _mock_collect, client: AsyncClient, auth_headers: dict
+    mock_create_job, client: AsyncClient, auth_headers: dict
 ):
     await client.post(
         "/wallets",
@@ -114,14 +126,16 @@ async def test_snapshot_empty_balances(
         },
     )
     r = await client.post("/snapshot", headers=auth_headers, json={})
-    assert r.status_code == 201
-    data = r.json()
-    assert len(data) >= 1
-    assert Decimal(data[0]["total_usd"]) == 0
-    assert data[0]["balances"] == []
+    assert r.status_code == 202
+    assert r.json() == {"job_id": 123, "status": "pending"}
+    assert mock_create_job.call_args.kwargs["wallet_id"] is None
 
 
-async def test_portfolio_history_and_summary(client: AsyncClient, auth_headers: dict):
+async def test_portfolio_history_and_summary(
+    client: AsyncClient,
+    auth_headers: dict,
+    db_session: AsyncSession,
+):
     w = (
         await client.post(
             "/wallets",
@@ -134,13 +148,65 @@ async def test_portfolio_history_and_summary(client: AsyncClient, auth_headers: 
         )
     ).json()
 
-    with patch("app.services.snapshot.collect_wallet_balances", return_value=[]):
-        await client.post(
-            "/snapshot", headers=auth_headers, json={"wallet_id": w["id"]}
+    wallet = await db_session.get(Wallet, w["id"])
+    assert wallet is not None
+    now = datetime.now(timezone.utc)
+
+    run1 = SnapshotRun(
+        user_id=wallet.user_id,
+        wallet_id=wallet.id,
+        trigger_type="manual",
+        scope_type="wallet",
+        status="success",
+        finished_at=now - timedelta(minutes=2),
+    )
+    run2 = SnapshotRun(
+        user_id=wallet.user_id,
+        wallet_id=wallet.id,
+        trigger_type="manual",
+        scope_type="wallet",
+        status="success",
+        finished_at=now - timedelta(minutes=1),
+    )
+    db_session.add_all([run1, run2])
+    await db_session.flush()
+
+    wallet_snapshot1 = WalletSnapshot(
+        snapshot_run_id=run1.id,
+        wallet_id=wallet.id,
+        wallet_type=wallet.wallet_type,
+        status="success",
+        total_usd=Decimal("100"),
+    )
+    wallet_snapshot2 = WalletSnapshot(
+        snapshot_run_id=run2.id,
+        wallet_id=wallet.id,
+        wallet_type=wallet.wallet_type,
+        status="success",
+        total_usd=Decimal("200"),
+    )
+    db_session.add_all([wallet_snapshot1, wallet_snapshot2])
+    await db_session.flush()
+
+    chain_snapshot = ChainSnapshot(
+        wallet_snapshot_id=wallet_snapshot2.id,
+        chain="mainnet",
+        status="success",
+        total_usd=Decimal("200"),
+    )
+    db_session.add(chain_snapshot)
+    await db_session.flush()
+    db_session.add(
+        SnapshotBalanceSnapshot(
+            chain_snapshot_id=chain_snapshot.id,
+            asset_symbol="ETH",
+            amount=Decimal("1"),
+            price_usd=Decimal("200"),
+            value_usd=Decimal("200"),
+            price_source="test",
         )
-        await client.post(
-            "/snapshot", headers=auth_headers, json={"wallet_id": w["id"]}
-        )
+    )
+    await db_session.flush()
 
     hist = await client.get(
         f"/portfolio?wallet_id={w['id']}&days=30",
@@ -151,7 +217,19 @@ async def test_portfolio_history_and_summary(client: AsyncClient, auth_headers: 
 
     summary = await client.get("/portfolio/summary", headers=auth_headers)
     assert summary.status_code == 200
-    assert summary.json()["wallets_count"] >= 1
+    body = summary.json()
+    assert body["wallets_count"] >= 1
+    assert body["active_wallets_count"] >= 1
+    assert body["last_snapshot_at"] is not None
+    assert Decimal(body["total_usd"]) == Decimal("200")
+    assert body["top_assets"][0]["symbol"] == "ETH"
+
+    hist_named = await client.get(
+        f"/portfolio/history?wallet_id={w['id']}&days=30",
+        headers=auth_headers,
+    )
+    assert hist_named.status_code == 200
+    assert len(hist_named.json()["points"]) == 2
 
 
 async def test_health_ok(client: AsyncClient):

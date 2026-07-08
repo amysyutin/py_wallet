@@ -116,6 +116,12 @@ class Settings(BaseSettings):
     jwt_secret: str | None = None
     jwt_alg: str = "HS256"
     access_token_ttl_min: int = 60
+    snapshot_service_url: str = "http://localhost:8001"
+    snapshot_internal_api_token: str = ""
+    snapshot_service_timeout_seconds: float = Field(default=5.0, gt=0)
+    snapshot_auto_on_wallet_create: bool = True
+    snapshot_scheduler_enabled: bool = True
+    snapshot_scheduler_interval_seconds: int = Field(default=300, gt=0)
 
     jwt_secret_source: JwtSecretSource = Field(default="environment", exclude=True)
     using_dev_jwt_secret: bool = Field(default=False, exclude=True)

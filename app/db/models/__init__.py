@@ -4,6 +4,12 @@ from app.db.models.balance_snapshot import BalanceSnapshot
 from app.db.models.manual_balance import ManualBalance
 from app.db.models.price_history import PriceHistory
 from app.db.models.snapshot import Snapshot
+from app.db.models.snapshot_service import (
+    ChainSnapshot,
+    SnapshotBalanceSnapshot,
+    SnapshotRun,
+    WalletSnapshot,
+)
 from app.db.models.transaction import Transaction
 from app.db.models.user import User
 from app.db.models.wallet import Wallet
@@ -17,6 +23,10 @@ __all__ = [
     "Asset",
     "ManualBalance",
     "Snapshot",
+    "SnapshotRun",
+    "WalletSnapshot",
+    "ChainSnapshot",
+    "SnapshotBalanceSnapshot",
     "BalanceSnapshot",
     "Transaction",
     "PriceHistory",

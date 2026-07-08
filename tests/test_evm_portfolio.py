@@ -39,7 +39,8 @@ def test_summarize_chain_with_stablecoins(
         500_000_000,
         250_000_000,
     ]  # 500 USDT, 250 USDC (6 decimals)
-    cs = summarize_chain("mainnet", "0xABC")
+    with patch(f"{MODULE}.CHAIN_RPC", {"mainnet": "https://rpc.fake"}):
+        cs = summarize_chain("mainnet", "0xABC")
     assert cs.usdt_amount == 500.0
     assert cs.usdc_amount == 250.0
 
@@ -84,13 +85,44 @@ def test_summarize_chain_bnb_no_eth_token(
 def test_summarize_chain_no_rpc_url(
     mock_get_bal, mock_erc20_bal, mock_dec, mock_eth_price
 ):
-    """Цепочка без RPC URL → native_amount = 0."""
+    """Цепочка без RPC URL → skipped summary без RPC/ERC-20 вызовов."""
     with patch(f"{MODULE}.CHAIN_RPC", {"test_chain": ""}):
-        with patch(f"{MODULE}.TOKENS_BY_CHAIN", {"test_chain": {}}):
+        with patch(
+            f"{MODULE}.TOKENS_BY_CHAIN",
+            {
+                "test_chain": {
+                    "USDT": "0x0000000000000000000000000000000000000001",
+                    "USDC": "0x0000000000000000000000000000000000000002",
+                }
+            },
+        ):
             with patch(f"{MODULE}.NATIVE_SYMBOL", {"test_chain": "TEST"}):
                 cs = summarize_chain("test_chain", "0xABC")
                 assert cs.native_amount == 0.0
+                assert cs.usdt_amount == 0.0
+                assert cs.usdc_amount == 0.0
+                assert cs.status == "skipped"
+                assert cs.error_type == "missing_rpc_url"
                 mock_get_bal.assert_not_called()
+                mock_erc20_bal.assert_not_called()
+                mock_dec.assert_not_called()
+
+
+@patch(f"{MODULE}.get_eth_usd_price_cached", return_value=3000.0)
+@patch(f"{MODULE}.decimals")
+@patch(f"{MODULE}.balance_of")
+@patch(f"{MODULE}.get_balance")
+def test_summarize_chain_missing_address_skips_rpc_calls(
+    mock_get_bal, mock_erc20_bal, mock_dec, mock_eth_price
+):
+    with patch(f"{MODULE}.CHAIN_RPC", {"mainnet": "https://rpc.fake"}):
+        cs = summarize_chain("mainnet", "")
+
+    assert cs.status == "skipped"
+    assert cs.error_type == "missing_address"
+    mock_get_bal.assert_not_called()
+    mock_erc20_bal.assert_not_called()
+    mock_dec.assert_not_called()
 
 
 # ─── summarize_all ──────────────────────────────────────────────────────────
@@ -159,3 +191,16 @@ def test_summarize_all_empty_chains(mock_chain, mock_price):
         ps = summarize_all("0xABC")
     assert ps.chains == []
     assert ps.total_usd == 0.0
+
+
+@patch(f"{MODULE}.get_native_price_usd_cached")
+def test_summarize_all_includes_skipped_chain_without_pricing(mock_price):
+    with patch(f"{MODULE}.CHAIN_RPC", {"mainnet": ""}):
+        ps = summarize_all("0xABC")
+
+    assert len(ps.chains) == 1
+    assert ps.chains[0].chain == "mainnet"
+    assert ps.chains[0].status == "skipped"
+    assert ps.chains[0].error_type == "missing_rpc_url"
+    assert ps.total_usd == 0.0
+    mock_price.assert_not_called()
