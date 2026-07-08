@@ -7,7 +7,6 @@ import requests
 from app.core.config import Settings
 from app.log import get_logger
 
-
 logger = get_logger(__name__)
 
 
@@ -90,9 +89,7 @@ def create_snapshot_job(
             elapsed_ms,
             type(exc).__name__,
         )
-        raise SnapshotServiceError(
-            502, "Snapshot service is unavailable"
-        ) from exc
+        raise SnapshotServiceError(502, "Snapshot service is unavailable") from exc
 
     elapsed_ms = int((perf_counter() - started_at) * 1000)
     if 200 <= response.status_code < 300:
@@ -114,9 +111,7 @@ def create_snapshot_job(
         )
 
     if response.status_code == 401:
-        raise SnapshotServiceError(
-            502, "Snapshot service authentication failed"
-        )
+        raise SnapshotServiceError(502, "Snapshot service authentication failed")
     if response.status_code == 422:
         raise SnapshotServiceError(422, _extract_error_detail(response))
     if response.status_code >= 500:
@@ -129,8 +124,6 @@ def create_snapshot_job(
         job_id = int(data["job_id"])
         job_status = str(data["status"])
     except (KeyError, TypeError, ValueError) as exc:
-        raise SnapshotServiceError(
-            502, "Unexpected snapshot service response"
-        ) from exc
+        raise SnapshotServiceError(502, "Unexpected snapshot service response") from exc
 
     return SnapshotJobResult(job_id=job_id, status=job_status)

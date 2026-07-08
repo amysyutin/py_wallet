@@ -170,16 +170,12 @@ async def test_snapshot_jobs_list_and_get(
     assert all_jobs.status_code == 200
     assert len(all_jobs.json()) >= 2
 
-    filtered = await client.get(
-        "/snapshot-jobs?status=pending", headers=auth_headers
-    )
+    filtered = await client.get("/snapshot-jobs?status=pending", headers=auth_headers)
     assert filtered.status_code == 200
     assert all(j["status"] == "pending" for j in filtered.json())
     assert any(j["job_id"] == run_pending.id for j in filtered.json())
 
-    detail = await client.get(
-        f"/snapshot-jobs/{run_ok.id}", headers=auth_headers
-    )
+    detail = await client.get(f"/snapshot-jobs/{run_ok.id}", headers=auth_headers)
     assert detail.status_code == 200
     body = detail.json()
     assert body["job_id"] == run_ok.id

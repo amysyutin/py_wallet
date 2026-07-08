@@ -31,9 +31,7 @@ async def _snapshot_scheduler_loop() -> None:
         try:
             async with SessionLocal() as session:
                 rows = await session.execute(
-                    select(Wallet.user_id)
-                    .where(Wallet.is_active.is_(True))
-                    .distinct()
+                    select(Wallet.user_id).where(Wallet.is_active.is_(True)).distinct()
                 )
                 user_ids = [int(r.user_id) for r in rows]
 

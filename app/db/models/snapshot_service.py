@@ -11,9 +11,7 @@ from app.db.base import Base
 
 class SnapshotRun(Base):
     __tablename__ = "snapshot_runs"
-    __table_args__ = (
-        Index("ix_snapshot_runs_user_created", "user_id", "created_at"),
-    )
+    __table_args__ = (Index("ix_snapshot_runs_user_created", "user_id", "created_at"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(
@@ -38,9 +36,7 @@ class SnapshotRun(Base):
 
 class WalletSnapshot(Base):
     __tablename__ = "wallet_snapshots"
-    __table_args__ = (
-        Index("ix_wallet_snapshots_run_id", "snapshot_run_id"),
-    )
+    __table_args__ = (Index("ix_wallet_snapshots_run_id", "snapshot_run_id"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     snapshot_run_id: Mapped[int] = mapped_column(
@@ -53,9 +49,7 @@ class WalletSnapshot(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     total_usd: Mapped[Decimal] = mapped_column(Numeric(20, 8), default=0)
 
-    snapshot_run: Mapped[SnapshotRun] = relationship(
-        back_populates="wallet_snapshots"
-    )
+    snapshot_run: Mapped[SnapshotRun] = relationship(back_populates="wallet_snapshots")
     chain_snapshots: Mapped[list[ChainSnapshot]] = relationship(
         back_populates="wallet_snapshot"
     )

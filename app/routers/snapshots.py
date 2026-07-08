@@ -10,7 +10,9 @@ from app.schemas.snapshot import SnapshotCreate, SnapshotJobRead
 from app.services.snapshot_jobs import SnapshotServiceError, create_snapshot_job
 
 router = APIRouter(prefix="/snapshots", tags=["snapshots"])
-legacy_router = APIRouter(prefix="/snapshot", tags=["snapshot"], include_in_schema=False)
+legacy_router = APIRouter(
+    prefix="/snapshot", tags=["snapshot"], include_in_schema=False
+)
 
 
 async def _create_snapshot_for_user(

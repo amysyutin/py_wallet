@@ -92,9 +92,9 @@ async def _load_snapshot_assets(
         )
         .where(ChainSnapshot.wallet_snapshot_id.in_(snapshot_ids))
     )
-    by_snapshot: dict[
-        int, list[tuple[str, str, Decimal, Decimal, Decimal | None]]
-    ] = defaultdict(list)
+    by_snapshot: dict[int, list[tuple[str, str, Decimal, Decimal, Decimal | None]]] = (
+        defaultdict(list)
+    )
     for row in rows:
         by_snapshot[row.wallet_snapshot_id].append(
             (
@@ -124,10 +124,7 @@ async def _load_snapshot_meta(
         .join(SnapshotRun, SnapshotRun.id == WalletSnapshot.snapshot_run_id)
         .where(WalletSnapshot.id.in_(snapshot_ids))
     )
-    return {
-        row.id: (row.total_usd, row.snapshot_at)
-        for row in rows
-    }
+    return {row.id: (row.total_usd, row.snapshot_at) for row in rows}
 
 
 async def _load_manual_assets(
@@ -141,9 +138,9 @@ async def _load_manual_assets(
         .options(selectinload(ManualBalance.asset))
         .where(ManualBalance.wallet_id.in_(wallet_ids))
     )
-    by_wallet: dict[
-        int, list[tuple[str, str, Decimal, Decimal, Decimal | None]]
-    ] = defaultdict(list)
+    by_wallet: dict[int, list[tuple[str, str, Decimal, Decimal, Decimal | None]]] = (
+        defaultdict(list)
+    )
     for balance in rows.scalars():
         asset = balance.asset
         value = _manual_value(balance.amount, balance.price_usd)
@@ -180,7 +177,9 @@ def _aggregate_symbol_assets(
     return is_agg
 
 
-def _top_assets_from_agg(agg: dict[str, _AssetAgg], limit: int = TOP_ASSETS_LIMIT) -> list[WalletTopAsset]:
+def _top_assets_from_agg(
+    agg: dict[str, _AssetAgg], limit: int = TOP_ASSETS_LIMIT
+) -> list[WalletTopAsset]:
     ordered = sorted(agg.items(), key=lambda item: item[1].usd_value, reverse=True)
     return [
         WalletTopAsset(
@@ -255,9 +254,7 @@ async def build_wallet_balance_info(
     return result
 
 
-async def _group_names(
-    session: AsyncSession, wallets: list[Wallet]
-) -> dict[int, str]:
+async def _group_names(session: AsyncSession, wallets: list[Wallet]) -> dict[int, str]:
     group_ids = {w.group_id for w in wallets if w.group_id is not None}
     if not group_ids:
         return {}

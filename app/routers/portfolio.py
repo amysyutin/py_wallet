@@ -130,17 +130,23 @@ async def portfolio_summary(
         )
     ) or Decimal("0")
 
-    wallets_count = await session.scalar(
-        select(func.count())
-        .select_from(Wallet)
-        .where(Wallet.user_id == current_user.id)
-    ) or 0
+    wallets_count = (
+        await session.scalar(
+            select(func.count())
+            .select_from(Wallet)
+            .where(Wallet.user_id == current_user.id)
+        )
+        or 0
+    )
 
-    active_wallets_count = await session.scalar(
-        select(func.count())
-        .select_from(Wallet)
-        .where(Wallet.user_id == current_user.id, Wallet.is_active.is_(True))
-    ) or 0
+    active_wallets_count = (
+        await session.scalar(
+            select(func.count())
+            .select_from(Wallet)
+            .where(Wallet.user_id == current_user.id, Wallet.is_active.is_(True))
+        )
+        or 0
+    )
 
     snapshot_at = func.coalesce(SnapshotRun.finished_at, SnapshotRun.created_at)
     last_snapshot_at = await session.scalar(

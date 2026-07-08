@@ -821,9 +821,7 @@ async def test_wallet_summary_and_snapshots(
     )
     await db_session.flush()
 
-    summary = await client.get(
-        f"/wallets/{wallet['id']}/summary", headers=auth_headers
-    )
+    summary = await client.get(f"/wallets/{wallet['id']}/summary", headers=auth_headers)
     assert summary.status_code == 200
     data = summary.json()
     assert data["wallet"]["id"] == wallet["id"]
@@ -831,9 +829,7 @@ async def test_wallet_summary_and_snapshots(
     assert data["assets"][0]["symbol"] == "USDC"
     assert data["assets"][0]["chain"] == "mainnet"
 
-    snaps = await client.get(
-        f"/wallets/{wallet['id']}/snapshots", headers=auth_headers
-    )
+    snaps = await client.get(f"/wallets/{wallet['id']}/snapshots", headers=auth_headers)
     assert snaps.status_code == 200
     assert len(snaps.json()) == 1
     assert Decimal(snaps.json()[0]["total_usd"]) == Decimal("80")
@@ -857,9 +853,7 @@ async def test_restore_wallet(client: AsyncClient, auth_headers: dict):
     assert r.json()["is_active"] is True
 
 
-async def test_manual_wallet_summary_fallback(
-    client: AsyncClient, auth_headers: dict
-):
+async def test_manual_wallet_summary_fallback(client: AsyncClient, auth_headers: dict):
     from decimal import Decimal
 
     wallet = (
@@ -907,9 +901,7 @@ async def test_post_wallet_snapshots_shortcut(
             },
         )
     ).json()
-    r = await client.post(
-        f"/wallets/{wallet['id']}/snapshots", headers=auth_headers
-    )
+    r = await client.post(f"/wallets/{wallet['id']}/snapshots", headers=auth_headers)
     assert r.status_code == 202
     assert r.json() == {"job_id": 200, "status": "pending"}
     assert mock_create_job.call_args.kwargs["scope_type"] == "wallet"
