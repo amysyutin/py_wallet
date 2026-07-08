@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -63,3 +64,50 @@ class WalletRead(BaseModel):
     notes: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class WalletTopAsset(BaseModel):
+    symbol: str
+    amount: Decimal
+    usd_value: Decimal
+
+
+class WalletAssetDetail(BaseModel):
+    symbol: str
+    chain: str
+    amount: Decimal
+    usd_value: Decimal
+    price_usd: Decimal | None = None
+
+
+class WalletSummaryRead(BaseModel):
+    id: int
+    label: str
+    wallet_type: str
+    chain_type: str
+    address: str | None
+    group_id: int | None
+    group_name: str | None = None
+    is_active: bool
+    balance_usd: Decimal
+    balance_source: Literal["latest_snapshot", "manual", "none"]
+    last_snapshot_at: datetime | None
+    balances_count: int
+    top_assets: list[WalletTopAsset]
+    created_at: datetime
+    updated_at: datetime
+
+
+class WalletDetailSummary(BaseModel):
+    wallet: WalletRead
+    balance_usd: Decimal
+    last_snapshot_at: datetime | None
+    assets: list[WalletAssetDetail]
+
+
+class WalletSnapshotRead(BaseModel):
+    id: int
+    snapshot_run_id: int
+    status: str
+    total_usd: Decimal
+    snapshot_at: datetime
