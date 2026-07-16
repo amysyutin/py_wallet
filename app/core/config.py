@@ -150,6 +150,12 @@ class Settings(BaseSettings):
         env = normalize_app_env(self.app_env)
         self.app_env = env
 
+        if env == "test":
+            if "snapshot_auto_on_wallet_create" not in self.model_fields_set:
+                self.snapshot_auto_on_wallet_create = False
+            if "snapshot_scheduler_enabled" not in self.model_fields_set:
+                self.snapshot_scheduler_enabled = False
+
         if self.jwt_secret is None:
             raw_present = False
             raw = None

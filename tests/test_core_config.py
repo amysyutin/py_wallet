@@ -94,6 +94,23 @@ def test_test_env_explicit_custom_secret_ok():
     assert s.jwt_secret == "another-test-secret-8"
 
 
+def test_test_env_disables_automatic_snapshots_by_default():
+    s = _settings(APP_ENV="test", JWT_SECRET=None)
+    assert s.snapshot_auto_on_wallet_create is False
+    assert s.snapshot_scheduler_enabled is False
+
+
+def test_test_env_allows_automatic_snapshots_to_be_enabled_explicitly():
+    s = _settings(
+        APP_ENV="test",
+        JWT_SECRET=None,
+        snapshot_auto_on_wallet_create=True,
+        snapshot_scheduler_enabled=True,
+    )
+    assert s.snapshot_auto_on_wallet_create is True
+    assert s.snapshot_scheduler_enabled is True
+
+
 def test_test_env_explicit_empty_rejected():
     with pytest.raises(ValidationError):
         _settings(APP_ENV="test", JWT_SECRET="")
