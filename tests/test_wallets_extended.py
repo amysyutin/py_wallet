@@ -1,11 +1,12 @@
 """Tests for extended wallet CRUD and migration backfill behavior."""
 
-from unittest.mock import patch
+from unittest.mock import ANY, Mock, patch
 
 from httpx import AsyncClient
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import Settings
 from app.core.security import hash_password
 from app.db.models.user import User
 from app.db.models.wallet import Wallet
@@ -69,6 +70,49 @@ async def test_create_wallet_defaults(client: AsyncClient, auth_headers: dict):
     assert data["wallet_type"] == "evm"
     assert data["is_active"] is True
     assert data["group_id"] is None
+
+
+async def test_create_wallet_starts_auto_snapshot_when_explicitly_enabled(
+    client: AsyncClient, auth_headers: dict
+):
+    settings = Settings(
+        _env_file=None,
+        app_env="test",
+        jwt_secret=None,
+        snapshot_auto_on_wallet_create=True,
+        snapshot_scheduler_enabled=False,
+    )
+    scheduled = []
+    create_snapshot_job = Mock(
+        return_value=SnapshotJobResult(job_id=123, status="pending")
+    )
+
+    with (
+        patch("app.routers.wallets.get_settings", return_value=settings),
+        patch("app.routers.wallets.create_snapshot_job", create_snapshot_job),
+        patch(
+            "app.routers.wallets.asyncio.create_task",
+            side_effect=lambda coroutine: scheduled.append(coroutine),
+        ),
+    ):
+        response = await client.post(
+            "/wallets",
+            headers=auth_headers,
+            json={
+                "label": "Auto snapshot",
+                "address": "0x0000000000000000000000000000000000000012",
+                "chain_type": "mainnet",
+            },
+        )
+        assert response.status_code == 201
+        assert len(scheduled) == 1
+        await scheduled[0]
+        create_snapshot_job.assert_called_once_with(
+            settings,
+            user_id=ANY,
+            scope_type="wallet",
+            wallet_id=response.json()["id"],
+        )
 
 
 async def test_create_manual_wallet_without_address(
