@@ -113,6 +113,8 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://wallet:wallet@localhost:5432/wallet"
 
     app_env: AppEnv = "development"
+    app_version: str = Field(default="0.1.0", min_length=1, max_length=128)
+    build_sha: str = Field(default="unknown", min_length=1, max_length=128)
     jwt_secret: str | None = None
     jwt_alg: str = "HS256"
     access_token_ttl_min: int = 60
@@ -133,6 +135,15 @@ class Settings(BaseSettings):
             normalized = value.strip().lower()
             if normalized == "ci":
                 return "test"
+        return value
+
+    @field_validator("app_version", "build_sha", mode="before")
+    @classmethod
+    def normalize_release_metadata(cls, value: object, info) -> object:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return "0.1.0" if info.field_name == "app_version" else "unknown"
+        if isinstance(value, str):
+            return value.strip()
         return value
 
     @field_validator("jwt_alg")

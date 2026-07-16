@@ -799,6 +799,104 @@ async def test_list_wallets_filters(client: AsyncClient, auth_headers: dict):
     assert [w["id"] for w in by_chain] == [evm["id"]]
 
 
+async def test_wallet_list_and_detail_fall_back_to_latest_legacy_snapshot(
+    client: AsyncClient, auth_headers: dict, db_session: AsyncSession
+):
+    from datetime import datetime, timedelta, timezone
+    from decimal import Decimal
+
+    from app.db.models.asset import Asset
+    from app.db.models.balance_snapshot import BalanceSnapshot
+    from app.db.models.snapshot import Snapshot
+
+    wallet = (
+        await client.post(
+            "/wallets",
+            headers=auth_headers,
+            json={
+                "label": "Legacy snapshot",
+                "address": "0x00000000000000000000000000000000000000c6",
+                "chain_type": "mainnet",
+            },
+        )
+    ).json()
+    asset = Asset(
+        symbol="ETH",
+        name="Ethereum",
+        contract_address=None,
+        chain="mainnet",
+        decimals=18,
+    )
+    db_session.add(asset)
+    await db_session.flush()
+
+    now = datetime.now(timezone.utc)
+    old_snapshot = Snapshot(
+        wallet_id=wallet["id"],
+        snapshot_at=now - timedelta(hours=1),
+        total_usd=Decimal("10"),
+    )
+    latest_snapshot = Snapshot(
+        wallet_id=wallet["id"],
+        snapshot_at=now,
+        total_usd=Decimal("75"),
+    )
+    db_session.add_all([old_snapshot, latest_snapshot])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            BalanceSnapshot(
+                snapshot_id=old_snapshot.id,
+                asset_id=asset.id,
+                amount=Decimal("0.1"),
+                usd_value=Decimal("10"),
+            ),
+            BalanceSnapshot(
+                snapshot_id=latest_snapshot.id,
+                asset_id=asset.id,
+                amount=Decimal("0.5"),
+                usd_value=Decimal("75"),
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    wallets = await client.get("/wallets", headers=auth_headers)
+    assert wallets.status_code == 200
+    item = next(item for item in wallets.json() if item["id"] == wallet["id"])
+    assert item["balance_source"] == "latest_snapshot"
+    assert Decimal(item["balance_usd"]) == Decimal("75")
+    assert item["balances_count"] == 1
+    assert item["top_assets"][0]["symbol"] == "ETH"
+    assert Decimal(item["top_assets"][0]["amount"]) == Decimal("0.5")
+    assert Decimal(item["top_assets"][0]["usd_value"]) == Decimal("75")
+    assert item["last_snapshot_at"] is not None
+
+    summary = await client.get(f"/wallets/{wallet['id']}/summary", headers=auth_headers)
+    assert summary.status_code == 200
+    detail = summary.json()
+    assert Decimal(detail["balance_usd"]) == Decimal("75")
+    assert detail["last_snapshot_at"] is not None
+    assert detail["assets"][0]["symbol"] == "ETH"
+    assert Decimal(detail["assets"][0]["amount"]) == Decimal("0.5")
+    assert Decimal(detail["assets"][0]["usd_value"]) == Decimal("75")
+    assert Decimal(detail["assets"][0]["price_usd"]) == Decimal("150")
+
+    portfolio = await client.get("/portfolio/summary", headers=auth_headers)
+    assert portfolio.status_code == 200
+    portfolio_data = portfolio.json()
+    assert Decimal(portfolio_data["total_usd"]) == Decimal("75")
+    assert portfolio_data["active_wallets_count"] == 1
+    assert portfolio_data["top_assets"][0]["symbol"] == "ETH"
+
+    history = await client.get("/portfolio/history?days=30", headers=auth_headers)
+    assert history.status_code == 200
+    assert [Decimal(point["total_usd"]) for point in history.json()["points"]] == [
+        Decimal("10"),
+        Decimal("75"),
+    ]
+
+
 async def test_wallet_summary_and_snapshots(
     client: AsyncClient, auth_headers: dict, db_session: AsyncSession
 ):

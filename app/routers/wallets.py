@@ -2,7 +2,7 @@ import asyncio
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.config import get_settings
 from app.log import get_logger
@@ -90,6 +90,38 @@ async def _validate_group_id(
         )
 
 
+async def _ensure_unique_active_evm_address(
+    session: SessionDep,
+    *,
+    user_id: int,
+    address: str | None,
+    exclude_wallet_id: int | None = None,
+) -> None:
+    """Reject two active EVM wallets for the same user and address.
+
+    Ethereum addresses are hexadecimal, so SQL ``lower`` plus whitespace
+    trimming gives us the same canonical key on PostgreSQL and in tests.
+    """
+    if address is None:
+        return
+
+    normalized_address = address.strip().lower()
+    query = select(Wallet.id).where(
+        Wallet.user_id == user_id,
+        Wallet.wallet_type == "evm",
+        Wallet.is_active.is_(True),
+        func.lower(func.trim(Wallet.address)) == normalized_address,
+    )
+    if exclude_wallet_id is not None:
+        query = query.where(Wallet.id != exclude_wallet_id)
+
+    if await session.scalar(query) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An active wallet with this EVM address already exists",
+        )
+
+
 @router.post("", response_model=WalletRead, status_code=status.HTTP_201_CREATED)
 async def create_wallet(
     payload: WalletCreate,
@@ -97,6 +129,12 @@ async def create_wallet(
     session: SessionDep,
 ) -> Wallet:
     await _validate_group_id(session, current_user.id, payload.group_id)
+    if payload.wallet_type == "evm":
+        await _ensure_unique_active_evm_address(
+            session,
+            user_id=current_user.id,
+            address=payload.address,
+        )
 
     wallet = Wallet(
         user_id=current_user.id,
@@ -240,6 +278,15 @@ async def update_wallet(
                 detail=str(exc),
             ) from exc
 
+    resulting_is_active = updates.get("is_active", wallet.is_active)
+    if wallet.wallet_type == "evm" and resulting_is_active:
+        await _ensure_unique_active_evm_address(
+            session,
+            user_id=current_user.id,
+            address=updates.get("address", wallet.address),
+            exclude_wallet_id=wallet.id,
+        )
+
     for field, value in updates.items():
         setattr(wallet, field, value)
 
@@ -277,6 +324,13 @@ async def restore_wallet(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Wallet not found")
 
     if not wallet.is_active:
+        if wallet.wallet_type == "evm":
+            await _ensure_unique_active_evm_address(
+                session,
+                user_id=current_user.id,
+                address=wallet.address,
+                exclude_wallet_id=wallet.id,
+            )
         wallet.is_active = True
         await session.commit()
         await session.refresh(wallet)

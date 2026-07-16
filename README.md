@@ -66,7 +66,7 @@ Public endpoints:
 | Method | Path | Description |
 | --- | --- | --- |
 | `GET` | `/` | Basic availability check. Returns `{"status": "ok"}`. |
-| `GET` | `/health` | Database health check. Returns `{"status": "healthy"}` when PostgreSQL is available. |
+| `GET` | `/health` | Database health check. Includes non-sensitive application version and build SHA. |
 | `POST` | `/auth/register` | Create a user account. |
 | `POST` | `/auth/login` | Return a JWT bearer token. |
 | `GET` | `/assets?address=0x...` | EVM portfolio summary for the provided address. |
@@ -97,6 +97,11 @@ Authenticated endpoints require `Authorization: Bearer <token>`:
 Supported `chain_type` values for EVM wallets are `mainnet`, `base`, `bnb`,
 `arbitrum`, and `linea`. Manual wallets use `chain_type=manual`. Snapshot
 collection currently supports EVM wallets only.
+
+Release metadata can be supplied with `APP_VERSION` (defaults to `0.1.0`) and
+`BUILD_SHA` (defaults to `unknown`). These non-sensitive values are returned by
+`/health`, `/health/live`, and `/health/ready`; `APP_VERSION` is also used for
+the OpenAPI `info.version`. Do not put credentials or tokens in these variables.
 
 For existing EVM wallets, `PATCH /wallets/{id}` accepts `chain_type` and
 `address` (together or separately). `wallet_type` cannot be changed after
