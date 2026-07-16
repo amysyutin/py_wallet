@@ -9,7 +9,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.db.models.asset import Asset
+from app.db.models.balance_snapshot import BalanceSnapshot
 from app.db.models.manual_balance import ManualBalance
+from app.db.models.snapshot import Snapshot
 from app.db.models.snapshot_service import (
     ChainSnapshot,
     SnapshotBalanceSnapshot,
@@ -127,6 +130,69 @@ async def _load_snapshot_meta(
     return {row.id: (row.total_usd, row.snapshot_at) for row in rows}
 
 
+async def _latest_legacy_snapshots(
+    session: AsyncSession, wallet_ids: list[int]
+) -> dict[int, tuple[int, Decimal, datetime]]:
+    """Return the most recent legacy snapshot for each requested wallet."""
+    if not wallet_ids:
+        return {}
+
+    snapshot_rank = func.row_number().over(
+        partition_by=Snapshot.wallet_id,
+        order_by=(Snapshot.snapshot_at.desc(), Snapshot.id.desc()),
+    )
+    ranked = (
+        select(
+            Snapshot.id.label("snapshot_id"),
+            Snapshot.wallet_id,
+            Snapshot.total_usd,
+            Snapshot.snapshot_at,
+            snapshot_rank.label("snapshot_rank"),
+        )
+        .where(Snapshot.wallet_id.in_(wallet_ids))
+        .subquery()
+    )
+    rows = await session.execute(
+        select(
+            ranked.c.snapshot_id,
+            ranked.c.wallet_id,
+            ranked.c.total_usd,
+            ranked.c.snapshot_at,
+        ).where(ranked.c.snapshot_rank == 1)
+    )
+    return {
+        row.wallet_id: (row.snapshot_id, row.total_usd, row.snapshot_at) for row in rows
+    }
+
+
+async def _load_legacy_snapshot_assets(
+    session: AsyncSession, snapshot_ids: list[int]
+) -> dict[int, list[tuple[str, str, Decimal, Decimal, Decimal | None]]]:
+    """Legacy snapshot id -> assets in the wallet-view tuple format."""
+    if not snapshot_ids:
+        return {}
+    rows = await session.execute(
+        select(
+            BalanceSnapshot.snapshot_id,
+            Asset.symbol,
+            Asset.chain,
+            BalanceSnapshot.amount,
+            BalanceSnapshot.usd_value,
+        )
+        .join(Asset, Asset.id == BalanceSnapshot.asset_id)
+        .where(BalanceSnapshot.snapshot_id.in_(snapshot_ids))
+    )
+    by_snapshot: dict[int, list[tuple[str, str, Decimal, Decimal, Decimal | None]]] = (
+        defaultdict(list)
+    )
+    for row in rows:
+        price_usd = row.usd_value / row.amount if row.amount != Decimal("0") else None
+        by_snapshot[row.snapshot_id].append(
+            (row.symbol, row.chain, row.amount, row.usd_value, price_usd)
+        )
+    return by_snapshot
+
+
 async def _load_manual_assets(
     session: AsyncSession, wallet_ids: list[int]
 ) -> dict[int, list[tuple[str, str, Decimal, Decimal, Decimal | None]]]:
@@ -217,10 +283,18 @@ async def build_wallet_balance_info(
     snapshot_meta = await _load_snapshot_meta(session, snapshot_ids)
     snapshot_assets = await _load_snapshot_assets(session, snapshot_ids)
 
+    needs_legacy = [w.id for w in wallets if w.id not in latest_by_wallet]
+    legacy_by_wallet = await _latest_legacy_snapshots(session, needs_legacy)
+    legacy_assets = await _load_legacy_snapshot_assets(
+        session, [snapshot[0] for snapshot in legacy_by_wallet.values()]
+    )
+
     needs_manual = [
         w.id
         for w in wallets
-        if w.id not in latest_by_wallet and w.wallet_type == "manual"
+        if w.id not in latest_by_wallet
+        and w.id not in legacy_by_wallet
+        and w.wallet_type == "manual"
     ]
     manual_assets = await _load_manual_assets(session, needs_manual)
 
@@ -239,6 +313,18 @@ async def build_wallet_balance_info(
             info.top_assets = _top_assets_from_agg(agg)
             info.assets = _detail_assets_from_items(items)
             info.wallet_snapshot_id = snapshot_id
+        elif wallet.id in legacy_by_wallet:
+            legacy_snapshot_id, total_usd, snapshot_at = legacy_by_wallet[wallet.id]
+            items = legacy_assets.get(legacy_snapshot_id, [])
+            agg = _aggregate_symbol_assets(items)
+            info.balance_usd = total_usd
+            # Keep the public API contract stable: this is still the latest
+            # persisted snapshot, only stored in the legacy schema.
+            info.balance_source = "latest_snapshot"
+            info.last_snapshot_at = snapshot_at
+            info.balances_count = len(items)
+            info.top_assets = _top_assets_from_agg(agg)
+            info.assets = _detail_assets_from_items(items)
         elif wallet.wallet_type == "manual":
             items = manual_assets.get(wallet.id, [])
             if items:

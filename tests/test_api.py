@@ -3,6 +3,7 @@
 from fastapi.testclient import TestClient
 from app.main import app
 from unittest.mock import patch
+from types import SimpleNamespace
 
 client = TestClient(app)
 
@@ -19,18 +20,42 @@ def test_health():
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "healthy"
+    assert response.json()["version"] == "0.1.0"
+    assert response.json()["build_sha"] == "unknown"
 
 
 def test_health_live():
     response = client.get("/health/live")
     assert response.status_code == 200
     assert response.json()["status"] == "alive"
+    assert response.json()["version"] == "0.1.0"
+    assert response.json()["build_sha"] == "unknown"
 
 
 def test_health_ready():
     response = client.get("/health/ready")
     assert response.status_code == 200
     assert response.json()["status"] == "ready"
+    assert response.json()["version"] == "0.1.0"
+    assert response.json()["build_sha"] == "unknown"
+
+
+def test_health_exposes_configured_release_metadata():
+    release = SimpleNamespace(app_version="2.4.1", build_sha="6350ab10")
+    with patch("app.routes.get_settings", return_value=release):
+        response = client.get("/health/live")
+
+    assert response.json() == {
+        "status": "alive",
+        "version": "2.4.1",
+        "build_sha": "6350ab10",
+    }
+
+
+def test_openapi_exposes_application_version():
+    response = client.get("/openapi.json")
+    assert response.status_code == 200
+    assert response.json()["info"]["version"] == "0.1.0"
 
 
 @patch("app.routes._assert_database_available", side_effect=Exception("db down"))

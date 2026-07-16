@@ -3,10 +3,19 @@ from sqlalchemy import text
 
 from fastapi.routing import APIRouter
 from app.config import ADDRESS_EVM
+from app.core.config import get_settings
 from app.services.portfolio import summarize_all
 from app.db.session import engine
 
 router = APIRouter()
+
+
+def _release_info() -> dict[str, str]:
+    settings = get_settings()
+    return {
+        "version": settings.app_version,
+        "build_sha": settings.build_sha,
+    }
 
 
 async def _assert_database_available() -> None:
@@ -16,7 +25,7 @@ async def _assert_database_available() -> None:
 
 @router.get("/health/live")
 async def health_live():
-    return {"status": "alive"}
+    return {"status": "alive", **_release_info()}
 
 
 @router.get("/health/ready")
@@ -28,7 +37,7 @@ async def health_ready():
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="database unavailable",
         )
-    return {"status": "ready"}
+    return {"status": "ready", **_release_info()}
 
 
 @router.get("/health")
@@ -40,7 +49,7 @@ async def health():
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="database unavailable",
         )
-    return {"status": "healthy"}
+    return {"status": "healthy", **_release_info()}
 
 
 @router.get("/assets")

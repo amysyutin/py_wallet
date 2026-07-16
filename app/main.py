@@ -22,6 +22,7 @@ from app.routes import router
 from app.services.snapshot_jobs import SnapshotServiceError, create_snapshot_job
 
 logger = get_logger(__name__)
+app_settings = get_settings()
 
 
 async def _snapshot_scheduler_loop() -> None:
@@ -105,7 +106,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="py_wallet",
     description="Crypto portfolio aggregation and monitoring service.",
-    version="0.1.0",
+    version=app_settings.app_version,
     lifespan=lifespan,
 )
 app.include_router(router)
