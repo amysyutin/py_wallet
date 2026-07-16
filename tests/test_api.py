@@ -69,6 +69,8 @@ def test_metrics():
     response = client.get("/metrics")
     assert response.status_code == 200
     assert "# HELP" in response.text or "http_requests_total" in response.text
+    assert "py_wallet_build_info" in response.text
+    assert "py_wallet_snapshot_job_create_total" in response.text
 
 
 # ─── /assets ────────────────────────────────────────────────────────────────

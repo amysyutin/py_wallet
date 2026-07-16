@@ -47,6 +47,7 @@ async def _trigger_wallet_snapshot_background(*, user_id: int, wallet_id: int) -
             user_id=user_id,
             scope_type="wallet",
             wallet_id=wallet_id,
+            trigger_type="auto",
         )
     except SnapshotServiceError:
         # Wallet creation must not fail due to snapshot service issues.

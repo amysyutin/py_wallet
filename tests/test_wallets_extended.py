@@ -112,6 +112,7 @@ async def test_create_wallet_starts_auto_snapshot_when_explicitly_enabled(
             user_id=ANY,
             scope_type="wallet",
             wallet_id=response.json()["id"],
+            trigger_type="auto",
         )
 
 
