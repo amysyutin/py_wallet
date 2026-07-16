@@ -189,11 +189,11 @@ cp .env.example .env
 | `JWT_ALG` | No | JWT algorithm. Only `HS256` is allowed. Defaults to `HS256`. |
 | `ACCESS_TOKEN_TTL_MIN` | No | Access token lifetime in minutes. Defaults to `60`. |
 | `EVM1_ADDRESS` | For default `/assets` address | Default EVM wallet address. |
-| `RPC_URL_MAINNET` | For Mainnet aggregation | Ethereum Mainnet RPC URL. |
-| `RPC_URL_BASE` | For Base aggregation | Base RPC URL. |
-| `RPC_URL_BNB` | For BNB aggregation | BNB Chain RPC URL. |
-| `RPC_URL_ARB` | For Arbitrum aggregation | Arbitrum RPC URL. |
-| `RPC_URL_LINEA` | For Linea aggregation | Linea RPC URL. |
+| `RPC_URL_MAINNET` | For Mainnet aggregation | Comma-separated Ethereum Mainnet RPC URLs. |
+| `RPC_URL_BASE` | For Base aggregation | Comma-separated Base RPC URLs. |
+| `RPC_URL_BNB` | For BNB aggregation | Comma-separated BNB Chain RPC URLs. |
+| `RPC_URL_ARB` | For Arbitrum aggregation | Comma-separated Arbitrum RPC URLs. |
+| `RPC_URL_LINEA` | For Linea aggregation | Comma-separated Linea RPC URLs. |
 
 Do not commit `.env`. It is ignored by git.
 

@@ -1,6 +1,19 @@
 import requests
 
 
+class RpcResponseError(RuntimeError):
+    pass
+
+
+def _result(response: requests.Response, *, default: str) -> str:
+    response.raise_for_status()
+    payload = response.json()
+    if payload.get("error") is not None:
+        raise RpcResponseError(str(payload["error"]))
+    result = payload.get("result")
+    return result if isinstance(result, str) else default
+
+
 def get_balance(rpc_url: str, address: str) -> int:
     payload = {
         "jsonrpc": "2.0",
@@ -9,8 +22,7 @@ def get_balance(rpc_url: str, address: str) -> int:
         "id": 1,
     }
     r = requests.post(rpc_url, json=payload, timeout=15)
-    r.raise_for_status()
-    return int(r.json().get("result", "0x0"), 16)
+    return int(_result(r, default="0x0"), 16)
 
 
 def eth_call(rpc_url: str, to: str, data: str) -> str:
@@ -21,8 +33,7 @@ def eth_call(rpc_url: str, to: str, data: str) -> str:
         "id": 1,
     }
     r = requests.post(rpc_url, json=payload, timeout=15)
-    r.raise_for_status()
-    return r.json().get("result", "0x")
+    return _result(r, default="0x")
 
 
 # def erc20_balance_of(rpc_url: str, token: str, addr: str) -> int:

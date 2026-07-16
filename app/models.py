@@ -20,7 +20,7 @@ class ChainSummary(BaseModel):
     usdt_amount: float
     usdc_amount: float
     tokens: list[TokenBalance] = []
-    status: str = "ok"
+    status: str = "success"
     error_type: str | None = None
     error_message: str | None = None
 
