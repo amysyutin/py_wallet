@@ -54,21 +54,23 @@ TOKENS_BY_CHAIN = {
     "base": {
         "ETH": NATIVE_ETH_ADDRESS,
         "USDT": "0xA7D84C8fFc3C662F95e1b7b78c09D5DDF71F0991",
-        "USDC": "0xD9AAe2009bC5542E4A0eA4c2d6bE090E674b1b19",  # Native USDC on Base
+        "USDC": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",  # Native USDC
+        "USDbC": "0xd9aAEc86B65D86f6A7B5B1b0c42FFA531710b6CA",
     },
     "bnb": {
         "ETH": NATIVE_ETH_ADDRESS,
         "USDT": "0x55d398326f99059fF775485246999027B3197955",  # Binance-Peg USDT
-        "USDC": "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d",  # Binance-Peg USDC
+        "BINANCE_PEG_USDC": "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
     },
     "arbitrum": {
         "ETH": NATIVE_ETH_ADDRESS,
         "USDT": "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9",
         "USDC": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",  # Native USDC
+        "USDC.e": "0xFF970A61A04b1cA14834A43f5de4533eBDDB5CC8",
     },
     "linea": {
         "ETH": NATIVE_ETH_ADDRESS,
         "USDT": "0xa219439258ca9da29e9cc4ce5596924745e12b93",
-        "USDC": "0xc226f6Df6c60f5a992cEa8a620c10D50fE2F04e4",
+        "USDC": "0x176211869cA2b568f2A7D4EE941E073a821EE1ff",  # Native USDC
     },
 }

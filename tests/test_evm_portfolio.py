@@ -1,6 +1,10 @@
 """Unit-тесты сервиса EVM-портфолио: summarize_chain, summarize_all."""
 
 from unittest.mock import patch
+
+import requests
+
+from app.config import TOKENS_BY_CHAIN
 from app.services.portfolio import summarize_chain, summarize_all
 
 MODULE = "app.services.portfolio"
@@ -79,6 +83,25 @@ def test_summarize_chain_bnb_no_eth_token(
 
 
 @patch(f"{MODULE}.get_eth_usd_price_cached", return_value=3000.0)
+@patch(f"{MODULE}.decimals", return_value=18)
+@patch(f"{MODULE}.balance_of")
+@patch(f"{MODULE}.get_balance", return_value=0)
+def test_summarize_chain_distinguishes_binance_peg_usdc(
+    _mock_get_bal, mock_erc20_bal, _mock_dec, _mock_eth_price
+):
+    mock_erc20_bal.side_effect = [0, 2_000_000_000_000_000_000, 0]
+
+    with patch(f"{MODULE}.CHAIN_RPC", {"bnb": "https://rpc.fake"}):
+        cs = summarize_chain("bnb", "0xABC")
+
+    assert cs.usdc_amount == 0
+    assert len(cs.tokens) == 1
+    assert cs.tokens[0].symbol == "BINANCE_PEG_USDC"
+    assert cs.tokens[0].amount == 2
+    assert cs.tokens[0].usd == 2
+
+
+@patch(f"{MODULE}.get_eth_usd_price_cached", return_value=3000.0)
 @patch(f"{MODULE}.decimals", return_value=6)
 @patch(f"{MODULE}.balance_of", return_value=0)
 @patch(f"{MODULE}.get_balance", return_value=0)
@@ -123,6 +146,66 @@ def test_summarize_chain_missing_address_skips_rpc_calls(
     mock_get_bal.assert_not_called()
     mock_erc20_bal.assert_not_called()
     mock_dec.assert_not_called()
+
+
+@patch(f"{MODULE}.get_balance", side_effect=requests.Timeout("slow RPC"))
+def test_summarize_chain_timeout_isolated(_mock_get_balance):
+    with patch(f"{MODULE}.CHAIN_RPC", {"base": "https://rpc.fake"}):
+        cs = summarize_chain("base", "0xABC")
+
+    assert cs.status == "timeout"
+    assert cs.error_type == "timeout"
+    assert cs.native_amount == 0
+
+
+@patch(f"{MODULE}.get_balance")
+def test_summarize_chain_rate_limit_isolated(mock_get_balance):
+    response = requests.Response()
+    response.status_code = 429
+    error = requests.HTTPError("rate limited", response=response)
+    mock_get_balance.side_effect = error
+
+    with patch(f"{MODULE}.CHAIN_RPC", {"base": "https://rpc.fake"}):
+        cs = summarize_chain("base", "0xABC")
+
+    assert cs.status == "rate_limited"
+    assert cs.error_type == "rate_limited"
+
+
+@patch(f"{MODULE}.decimals", return_value=6)
+@patch(f"{MODULE}.balance_of", return_value=0)
+@patch(f"{MODULE}.get_balance")
+def test_summarize_chain_uses_next_rpc_after_failure(
+    mock_get_balance, _mock_balance_of, _mock_decimals
+):
+    mock_get_balance.side_effect = [requests.Timeout("primary down"), 0]
+
+    with patch(
+        f"{MODULE}.CHAIN_RPC",
+        {"base": "https://primary.fake, https://backup.fake"},
+    ):
+        cs = summarize_chain("base", "0xABC")
+
+    assert cs.status == "success"
+    assert [call.args[0] for call in mock_get_balance.call_args_list] == [
+        "https://primary.fake",
+        "https://backup.fake",
+    ]
+
+
+def test_native_usdc_contracts_match_issuer_registry():
+    assert TOKENS_BY_CHAIN["mainnet"]["USDC"] == (
+        "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+    )
+    assert TOKENS_BY_CHAIN["base"]["USDC"] == (
+        "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+    )
+    assert TOKENS_BY_CHAIN["arbitrum"]["USDC"] == (
+        "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
+    )
+    assert TOKENS_BY_CHAIN["linea"]["USDC"] == (
+        "0x176211869cA2b568f2A7D4EE941E073a821EE1ff"
+    )
 
 
 # ─── summarize_all ──────────────────────────────────────────────────────────

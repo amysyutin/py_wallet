@@ -2,7 +2,9 @@
 
 from unittest.mock import patch, MagicMock
 
-from app.connectors.rpc import get_balance, eth_call
+import pytest
+
+from app.connectors.rpc import RpcResponseError, get_balance, eth_call
 from app.connectors.erc20 import balance_of, decimals, _DECIMALS_CACHE
 
 # ─── RPC: get_balance ───────────────────────────────────────────────────────
@@ -65,6 +67,16 @@ def test_eth_call_fallback_on_missing_result(mock_post):
 
     result = eth_call("https://rpc.example.com", "0xToken", "0xdata")
     assert result == "0x"
+
+
+@patch("app.connectors.rpc.requests.post")
+def test_eth_call_raises_for_json_rpc_error(mock_post):
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"error": {"code": -32000, "message": "upstream"}}
+    mock_post.return_value = mock_resp
+
+    with pytest.raises(RpcResponseError):
+        eth_call("https://rpc.example.com", "0xToken", "0xdata")
 
 
 # ─── ERC20: balance_of ──────────────────────────────────────────────────────
