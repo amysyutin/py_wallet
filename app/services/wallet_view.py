@@ -21,6 +21,7 @@ from app.db.models.snapshot_service import (
 )
 from app.db.models.wallet import Wallet
 from app.db.models.wallet_group import WalletGroup
+from app.metrics import observe_wallet_balance
 from app.schemas.wallet import (
     WalletAssetDetail,
     WalletDetailSummary,
@@ -337,6 +338,10 @@ async def build_wallet_balance_info(
                 info.top_assets = _top_assets_from_agg(agg)
                 info.assets = _detail_assets_from_items(items)
         result[wallet.id] = info
+        observe_wallet_balance(
+            source=info.balance_source,
+            snapshot_at=info.last_snapshot_at,
+        )
     return result
 
 

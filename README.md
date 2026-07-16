@@ -103,6 +103,25 @@ Release metadata can be supplied with `APP_VERSION` (defaults to `0.1.0`) and
 `/health`, `/health/live`, and `/health/ready`; `APP_VERSION` is also used for
 the OpenAPI `info.version`. Do not put credentials or tokens in these variables.
 
+## Product metrics
+
+In addition to automatic HTTP RED metrics, `/metrics` exposes:
+
+- `py_wallet_build_info`
+- `py_wallet_snapshot_service_client_requests_total`
+- `py_wallet_snapshot_service_client_request_duration_seconds`
+- `py_wallet_snapshot_job_create_total`
+- `py_wallet_snapshot_scheduler_last_tick_timestamp_seconds`
+- `py_wallet_snapshot_scheduler_ticks_total`
+- `py_wallet_snapshot_scheduler_jobs_total`
+- `py_wallet_snapshot_scheduler_active_users`
+- `py_wallet_wallet_balance_source_observations_total`
+- `py_wallet_wallet_snapshot_freshness_seconds`
+
+Labels are restricted to bounded operation, scope, outcome, trigger, source,
+version, SHA, and environment values. User IDs, wallet IDs, addresses, job IDs,
+RPC URLs, and error messages are never exported as Prometheus labels.
+
 For existing EVM wallets, `PATCH /wallets/{id}` accepts `chain_type` and
 `address` (together or separately). `wallet_type` cannot be changed after
 creation; manual wallets cannot switch to an on-chain network.

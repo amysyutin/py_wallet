@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
+from time import time
 
 from fastapi import FastAPI
 from fastapi.concurrency import run_in_threadpool
@@ -10,6 +11,13 @@ from app.core.config import get_settings
 from app.db.session import engine
 from app.db.session import SessionLocal
 from app.log import get_logger
+from app.metrics import (
+    SNAPSHOT_SCHEDULER_JOBS,
+    SNAPSHOT_SCHEDULER_LAST_TICK,
+    SNAPSHOT_SCHEDULER_TICKS,
+    SNAPSHOT_SCHEDULER_USERS,
+    configure_build_info,
+)
 from app.db.models.wallet import Wallet
 from app.routers.auth import router as auth_router
 from app.routers.portfolio import router as portfolio_router
@@ -23,6 +31,11 @@ from app.services.snapshot_jobs import SnapshotServiceError, create_snapshot_job
 
 logger = get_logger(__name__)
 app_settings = get_settings()
+configure_build_info(
+    version=app_settings.app_version,
+    sha=app_settings.build_sha,
+    environment=app_settings.app_env,
+)
 
 
 async def _snapshot_scheduler_loop() -> None:
@@ -30,11 +43,13 @@ async def _snapshot_scheduler_loop() -> None:
     interval = settings.snapshot_scheduler_interval_seconds
     while True:
         try:
+            SNAPSHOT_SCHEDULER_LAST_TICK.set(time())
             async with SessionLocal() as session:
                 rows = await session.execute(
                     select(Wallet.user_id).where(Wallet.is_active.is_(True)).distinct()
                 )
                 user_ids = [int(r.user_id) for r in rows]
+            SNAPSHOT_SCHEDULER_USERS.observe(len(user_ids))
 
             if user_ids:
                 logger.info(
@@ -49,11 +64,17 @@ async def _snapshot_scheduler_loop() -> None:
                         settings,
                         user_id=user_id,
                         scope_type="all",
+                        trigger_type="scheduler",
                     )
                 except SnapshotServiceError:
+                    SNAPSHOT_SCHEDULER_JOBS.labels(outcome="error").inc()
                     # Scheduler should keep running even if snapshot service fails.
                     continue
+                else:
+                    SNAPSHOT_SCHEDULER_JOBS.labels(outcome="success").inc()
+            SNAPSHOT_SCHEDULER_TICKS.labels(outcome="success").inc()
         except Exception:
+            SNAPSHOT_SCHEDULER_TICKS.labels(outcome="error").inc()
             logger.exception("Snapshot scheduler tick failed")
 
         await asyncio.sleep(interval)

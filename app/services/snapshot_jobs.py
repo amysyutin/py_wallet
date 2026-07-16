@@ -6,6 +6,11 @@ import requests
 
 from app.core.config import Settings
 from app.log import get_logger
+from app.metrics import (
+    SNAPSHOT_JOB_CREATE,
+    SNAPSHOT_SERVICE_CLIENT_DURATION,
+    SNAPSHOT_SERVICE_CLIENT_REQUESTS,
+)
 
 logger = get_logger(__name__)
 
@@ -45,10 +50,11 @@ def create_snapshot_job(
     scope_type: str = "all",
     wallet_id: int | None = None,
     group_id: int | None = None,
+    trigger_type: str = "manual",
 ) -> SnapshotJobResult:
     payload: dict[str, Any] = {
         "user_id": user_id,
-        "trigger_type": "manual",
+        "trigger_type": trigger_type,
         "scope_type": scope_type,
     }
     if wallet_id is not None:
@@ -81,7 +87,18 @@ def create_snapshot_job(
             timeout=settings.snapshot_service_timeout_seconds,
         )
     except requests.RequestException as exc:
-        elapsed_ms = int((perf_counter() - started_at) * 1000)
+        elapsed_seconds = perf_counter() - started_at
+        elapsed_ms = int(elapsed_seconds * 1000)
+        outcome = "timeout" if isinstance(exc, requests.Timeout) else "connection_error"
+        SNAPSHOT_SERVICE_CLIENT_REQUESTS.labels(
+            operation="create_job", scope=scope_type, outcome=outcome
+        ).inc()
+        SNAPSHOT_SERVICE_CLIENT_DURATION.labels(
+            operation="create_job", scope=scope_type, outcome=outcome
+        ).observe(elapsed_seconds)
+        SNAPSHOT_JOB_CREATE.labels(
+            trigger=trigger_type, scope=scope_type, outcome=outcome
+        ).inc()
         logger.exception(
             "Snapshot service request failed: method=POST url=%s elapsed_ms=%s "
             "error_type=%s",
@@ -91,7 +108,28 @@ def create_snapshot_job(
         )
         raise SnapshotServiceError(502, "Snapshot service is unavailable") from exc
 
-    elapsed_ms = int((perf_counter() - started_at) * 1000)
+    elapsed_seconds = perf_counter() - started_at
+    elapsed_ms = int(elapsed_seconds * 1000)
+    if 200 <= response.status_code < 300:
+        outcome = "success"
+    elif response.status_code == 401:
+        outcome = "auth_error"
+    elif response.status_code == 422:
+        outcome = "validation_error"
+    elif response.status_code >= 500:
+        outcome = "upstream_5xx"
+    else:
+        outcome = "upstream_error"
+    SNAPSHOT_SERVICE_CLIENT_REQUESTS.labels(
+        operation="create_job", scope=scope_type, outcome=outcome
+    ).inc()
+    SNAPSHOT_SERVICE_CLIENT_DURATION.labels(
+        operation="create_job", scope=scope_type, outcome=outcome
+    ).observe(elapsed_seconds)
+    if outcome != "success":
+        SNAPSHOT_JOB_CREATE.labels(
+            trigger=trigger_type, scope=scope_type, outcome=outcome
+        ).inc()
     if 200 <= response.status_code < 300:
         logger.info(
             "Snapshot service response: method=POST url=%s status_code=%s "
@@ -124,6 +162,12 @@ def create_snapshot_job(
         job_id = int(data["job_id"])
         job_status = str(data["status"])
     except (KeyError, TypeError, ValueError) as exc:
+        SNAPSHOT_JOB_CREATE.labels(
+            trigger=trigger_type, scope=scope_type, outcome="invalid_response"
+        ).inc()
         raise SnapshotServiceError(502, "Unexpected snapshot service response") from exc
 
+    SNAPSHOT_JOB_CREATE.labels(
+        trigger=trigger_type, scope=scope_type, outcome="success"
+    ).inc()
     return SnapshotJobResult(job_id=job_id, status=job_status)
