@@ -26,6 +26,7 @@ from app.routers.snapshots import legacy_router as snapshot_legacy_router
 from app.routers.snapshots import router as snapshots_router
 from app.routers.wallet_groups import router as wallet_groups_router
 from app.routers.wallets import router as wallets_router
+from app.routers.telegram import router as telegram_router
 from app.routes import router
 from app.services.snapshot_jobs import SnapshotServiceError, create_snapshot_job
 
@@ -138,6 +139,7 @@ app.include_router(snapshots_router)
 app.include_router(snapshot_legacy_router)
 app.include_router(snapshot_jobs_router)
 app.include_router(portfolio_router)
+app.include_router(telegram_router)
 
 Instrumentator().instrument(app).expose(
     app, endpoint="/metrics", include_in_schema=False

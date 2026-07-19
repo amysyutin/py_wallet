@@ -24,6 +24,19 @@ class UserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    email: EmailStr
+    email: EmailStr | None
     role: UserRole
     created_at: datetime
+
+
+class TelegramAuthRequest(BaseModel):
+    init_data: str = Field(min_length=1, max_length=16384)
+
+
+class TelegramAuthResponse(Token):
+    is_new_user: bool
+    email_linked: bool
+
+
+class TelegramLinkEmailRequest(UserLogin):
+    pass
