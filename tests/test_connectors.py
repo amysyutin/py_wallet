@@ -3,6 +3,7 @@
 from unittest.mock import patch, MagicMock
 
 import pytest
+import requests
 
 from app.connectors.rpc import RpcResponseError, get_balance, eth_call
 from app.connectors.erc20 import balance_of, decimals, _DECIMALS_CACHE
@@ -143,6 +144,7 @@ def test_get_eth_usd_price_cached(mock_get):
     import app.connectors.price.coingecko as cg
 
     cg.ETH_USD_CACHE = None
+    cg.ETH_USD_CACHE_UPDATED_AT = None
 
     mock_resp = MagicMock()
     mock_resp.json.return_value = {"ethereum": {"usd": 3500.0}}
@@ -156,6 +158,55 @@ def test_get_eth_usd_price_cached(mock_get):
     assert mock_get.call_count == 1
 
     cg.ETH_USD_CACHE = None
+    cg.ETH_USD_CACHE_UPDATED_AT = None
+
+
+@patch("app.connectors.price.coingecko.requests.get")
+def test_get_eth_usd_price_refreshes_after_ttl(mock_get, monkeypatch):
+    import app.connectors.price.coingecko as cg
+
+    cg.ETH_USD_CACHE = None
+    cg.ETH_USD_CACHE_UPDATED_AT = None
+    now = 100.0
+    monkeypatch.setattr(cg, "monotonic", lambda: now)
+
+    first_response = MagicMock()
+    first_response.json.return_value = {"ethereum": {"usd": 3500.0}}
+    refreshed_response = MagicMock()
+    refreshed_response.json.return_value = {"ethereum": {"usd": 3600.0}}
+    mock_get.side_effect = [first_response, refreshed_response]
+
+    assert cg.get_eth_usd_price_cached() == 3500.0
+    now += cg.PRICE_CACHE_TTL_SECONDS - 1
+    assert cg.get_eth_usd_price_cached() == 3500.0
+    now += 2
+    assert cg.get_eth_usd_price_cached() == 3600.0
+    assert mock_get.call_count == 2
+
+    cg.ETH_USD_CACHE = None
+    cg.ETH_USD_CACHE_UPDATED_AT = None
+
+
+@patch("app.connectors.price.coingecko.requests.get")
+def test_get_eth_usd_price_uses_stale_value_when_refresh_fails(mock_get, monkeypatch):
+    import app.connectors.price.coingecko as cg
+
+    cg.ETH_USD_CACHE = None
+    cg.ETH_USD_CACHE_UPDATED_AT = None
+    now = 100.0
+    monkeypatch.setattr(cg, "monotonic", lambda: now)
+
+    response = MagicMock()
+    response.json.return_value = {"ethereum": {"usd": 3500.0}}
+    mock_get.return_value = response
+    assert cg.get_eth_usd_price_cached() == 3500.0
+
+    now += cg.PRICE_CACHE_TTL_SECONDS + 1
+    mock_get.side_effect = requests.RequestException("CoinGecko unavailable")
+    assert cg.get_eth_usd_price_cached() == 3500.0
+
+    cg.ETH_USD_CACHE = None
+    cg.ETH_USD_CACHE_UPDATED_AT = None
 
 
 @patch("app.connectors.price.coingecko.requests.get")
@@ -172,6 +223,7 @@ def test_get_native_price_bnb(mock_get):
     import app.connectors.price.coingecko as cg
 
     cg.NATIVE_PRICE_CACHE.pop("binancecoin", None)
+    cg.NATIVE_PRICE_CACHE_UPDATED_AT.pop("binancecoin", None)
 
     mock_resp = MagicMock()
     mock_resp.json.return_value = {"binancecoin": {"usd": 420.0}}
@@ -181,6 +233,29 @@ def test_get_native_price_bnb(mock_get):
     assert price == 420.0
 
     cg.NATIVE_PRICE_CACHE.pop("binancecoin", None)
+    cg.NATIVE_PRICE_CACHE_UPDATED_AT.pop("binancecoin", None)
+
+
+@patch("app.connectors.price.coingecko.requests.get")
+def test_get_native_price_uses_stale_value_when_refresh_fails(mock_get, monkeypatch):
+    import app.connectors.price.coingecko as cg
+
+    cg.NATIVE_PRICE_CACHE.pop("binancecoin", None)
+    cg.NATIVE_PRICE_CACHE_UPDATED_AT.pop("binancecoin", None)
+    now = 100.0
+    monkeypatch.setattr(cg, "monotonic", lambda: now)
+
+    response = MagicMock()
+    response.json.return_value = {"binancecoin": {"usd": 420.0}}
+    mock_get.return_value = response
+    assert cg.get_native_price_usd_cached("bnb") == 420.0
+
+    now += cg.PRICE_CACHE_TTL_SECONDS + 1
+    mock_get.side_effect = requests.RequestException("CoinGecko unavailable")
+    assert cg.get_native_price_usd_cached("bnb") == 420.0
+
+    cg.NATIVE_PRICE_CACHE.pop("binancecoin", None)
+    cg.NATIVE_PRICE_CACHE_UPDATED_AT.pop("binancecoin", None)
 
 
 @patch("app.connectors.price.coingecko.requests.get")
@@ -188,9 +263,11 @@ def test_get_native_price_handles_exception(mock_get):
     import app.connectors.price.coingecko as cg
 
     cg.NATIVE_PRICE_CACHE.pop("binancecoin", None)
+    cg.NATIVE_PRICE_CACHE_UPDATED_AT.pop("binancecoin", None)
 
     mock_get.side_effect = Exception("Network error")
     price = cg.get_native_price_usd_cached("bnb")
     assert price == 0.0
 
     cg.NATIVE_PRICE_CACHE.pop("binancecoin", None)
+    cg.NATIVE_PRICE_CACHE_UPDATED_AT.pop("binancecoin", None)
