@@ -124,6 +124,13 @@ class Settings(BaseSettings):
     snapshot_auto_on_wallet_create: bool = True
     snapshot_scheduler_enabled: bool = True
     snapshot_scheduler_interval_seconds: int = Field(default=300, gt=0)
+    telegram_bot_token: str = ""
+    telegram_bot_username: str = "py_WalletBot"
+    telegram_mini_app_url: str = "https://pywallet.dev/telegram"
+    telegram_auth_max_age_seconds: int = Field(default=300, ge=30, le=3600)
+    telegram_api_base_url: str = "https://api.telegram.org"
+    telegram_request_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    telegram_daily_balance_enabled: bool = False
 
     jwt_secret_source: JwtSecretSource = Field(default="environment", exclude=True)
     using_dev_jwt_secret: bool = Field(default=False, exclude=True)

@@ -11,6 +11,11 @@ from app.db.models.snapshot_service import (
     WalletSnapshot,
 )
 from app.db.models.transaction import Transaction
+from app.db.models.telegram import (
+    TelegramAccount,
+    TelegramDigestDelivery,
+    TelegramNotificationSettings,
+)
 from app.db.models.user import User
 from app.db.models.wallet import Wallet
 from app.db.models.wallet_group import WalletGroup
@@ -30,4 +35,7 @@ __all__ = [
     "BalanceSnapshot",
     "Transaction",
     "PriceHistory",
+    "TelegramAccount",
+    "TelegramNotificationSettings",
+    "TelegramDigestDelivery",
 ]

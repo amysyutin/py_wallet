@@ -17,6 +17,7 @@ separate `amysyutin/py_wallet-infra` repository.
 - USD valuation through RPC token balances and CoinGecko native token prices.
 - PostgreSQL persistence with Alembic migrations.
 - User registration and JWT authentication.
+- Telegram Mini App authentication, email account linking, and opt-in daily balance messages.
 - Per-user wallets, balance snapshots, portfolio history, and portfolio summary.
 - Local development through Docker Compose.
 - GitHub Actions checks, Docker image publishing to GHCR, and GitOps image tag updates.
@@ -69,6 +70,7 @@ Public endpoints:
 | `GET` | `/health` | Database health check. Includes non-sensitive application version and build SHA. |
 | `POST` | `/auth/register` | Create a user account. |
 | `POST` | `/auth/login` | Return a JWT bearer token. |
+| `POST` | `/auth/telegram` | Validate Telegram Mini App `initData` and return a JWT. |
 | `GET` | `/assets?address=0x...` | EVM portfolio summary for the provided address. |
 
 Authenticated endpoints require `Authorization: Bearer <token>`:
@@ -76,6 +78,9 @@ Authenticated endpoints require `Authorization: Bearer <token>`:
 | Method | Path | Description |
 | --- | --- | --- |
 | `GET` | `/auth/me` | Return the authenticated user (includes `role`). |
+| `POST` | `/auth/telegram/link-email` | Link a new Telegram-only identity to an existing email account. |
+| `GET` | `/telegram/settings` | Read Telegram daily balance settings. |
+| `PATCH` | `/telegram/settings` | Explicitly opt in/out and set IANA timezone, local send time, and `ru`/`en`. |
 | `POST` | `/wallet-groups` | Create a wallet group (`name`, optional `description`, `sort_order`). |
 | `GET` | `/wallet-groups` | List the authenticated user's wallet groups. |
 | `GET` | `/wallet-groups/{id}` | Get a wallet group by ID. |
@@ -220,8 +225,40 @@ cp .env.example .env
 | `RPC_URL_BNB` | For BNB aggregation | Comma-separated BNB Chain RPC URLs. |
 | `RPC_URL_ARB` | For Arbitrum aggregation | Comma-separated Arbitrum RPC URLs. |
 | `RPC_URL_LINEA` | For Linea aggregation | Comma-separated Linea RPC URLs. |
+| `TELEGRAM_BOT_TOKEN` | Telegram features | Bot token, supplied only through a local or deployment secret. Never commit it. |
+| `TELEGRAM_BOT_USERNAME` | No | Bot username without `@`; defaults to `py_WalletBot`. |
+| `TELEGRAM_MINI_APP_URL` | No | HTTPS Mini App URL; defaults to `https://pywallet.dev/telegram`. |
+| `TELEGRAM_AUTH_MAX_AGE_SECONDS` | No | Maximum accepted age of signed Mini App `initData`; defaults to `300`. |
+| `TELEGRAM_DAILY_BALANCE_ENABLED` | No | Global kill switch for the scheduled sender; defaults to `false`. User opt-in is always additionally required. |
+| `TELEGRAM_API_BASE_URL` | No | Telegram Bot API base URL; override only for tests/proxies. |
+| `TELEGRAM_REQUEST_TIMEOUT_SECONDS` | No | Bot API timeout; defaults to `10`. |
 
 Do not commit `.env`. It is ignored by git.
+
+## Telegram Mini App
+
+Configure BotFather's Main Mini App and menu button to open
+`https://pywallet.dev/telegram`. The frontend sends Telegram's original `initData`
+to `POST /auth/telegram`; the backend verifies its HMAC signature and `auth_date`
+before creating or reusing the Telegram identity. The bot token is never returned,
+logged, or included in frontend code.
+
+Telegram-only users have nullable email/password fields. They can safely merge into
+an existing account with `POST /auth/telegram/link-email`; usernames are metadata,
+while the immutable numeric Telegram user ID is the identity key.
+
+Daily messages are disabled globally and per-user by default. A user explicitly
+enables them via `PATCH /telegram/settings` after the Mini App requests Telegram
+write access. Run the idempotent sender from a scheduler (for example, every five
+minutes):
+
+```bash
+python -m app.jobs.telegram_daily_balance
+```
+
+The job reads only persisted portfolio snapshots, sends at most one digest per
+Telegram account and local calendar date, and links back to the Mini App. Telegram
+`400`/`403` send failures disable that user's notifications until they opt in again.
 
 ## JWT Auth Security
 
