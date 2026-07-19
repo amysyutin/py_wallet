@@ -259,6 +259,13 @@ APP_ENV=production JWT_SECRET="$(openssl rand -hex 32)" \
 Production runtime secrets are managed in the separate `amysyutin/py_wallet-infra`
 repository (Kubernetes Secret, not committed to Git).
 
+## Password Hashing
+
+New passwords are hashed with Argon2id. Existing bcrypt hashes remain valid and
+are automatically upgraded to Argon2id after the user's next successful login;
+no offline password migration is required. Password hashing and verification run
+outside the async event loop because they are intentionally CPU-intensive.
+
 **Secret rotation:** changing `JWT_SECRET` invalidates all existing access tokens.
 Users must log in again. Refresh tokens are not implemented yet; for this
 project a hard cutover (change secret, everyone re-authenticates) is sufficient.

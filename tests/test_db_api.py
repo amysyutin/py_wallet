@@ -1,9 +1,12 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import patch
+
+import bcrypt
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models.user import User
 from app.db.models.snapshot_service import (
     ChainSnapshot,
     SnapshotBalanceSnapshot,
@@ -54,6 +57,28 @@ async def test_login_accepts_email_with_different_case(client: AsyncClient):
     )
     assert login.status_code == 200
     assert login.json()["access_token"]
+
+
+async def test_login_upgrades_legacy_bcrypt_hash(
+    client: AsyncClient, db_session: AsyncSession
+):
+    password = "legacy-password"
+    user = User(
+        email="legacy-login@example.com",
+        auth_hash=bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode(),
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    login = await client.post(
+        "/auth/login",
+        json={"email": user.email, "password": password},
+    )
+
+    assert login.status_code == 200
+    await db_session.refresh(user)
+    assert user.auth_hash.startswith("$argon2id$")
 
 
 async def test_promote_admin_accepts_registered_email_with_different_case(

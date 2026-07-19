@@ -1,22 +1,55 @@
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
+from argon2 import PasswordHasher
+from argon2.exceptions import InvalidHashError, VerificationError
 from jose import JWTError, jwt
 
 from app.core.config import get_settings
 
+_PASSWORD_HASHER = PasswordHasher()
 
-def _pw_bytes(password: str) -> bytes:
-    # bcrypt не принимает пароли длиннее 72 байт — безопасно обрезаем
+
+def _legacy_bcrypt_bytes(password: str) -> bytes:
+    """Match the historical bcrypt behavior for existing password hashes."""
     return password.encode("utf-8")[:72]
 
 
 def hash_password(password: str) -> str:
-    return bcrypt.hashpw(_pw_bytes(password), bcrypt.gensalt()).decode("utf-8")
+    return _PASSWORD_HASHER.hash(password)
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    return bcrypt.checkpw(_pw_bytes(password), password_hash.encode("utf-8"))
+    valid, _ = verify_password_and_update(password, password_hash)
+    return valid
+
+
+def verify_password_and_update(
+    password: str, password_hash: str
+) -> tuple[bool, str | None]:
+    """Verify a password and return a replacement hash when migration is needed."""
+    if password_hash.startswith("$argon2"):
+        try:
+            valid = _PASSWORD_HASHER.verify(password_hash, password)
+        except (VerificationError, InvalidHashError):
+            return False, None
+        replacement = (
+            _PASSWORD_HASHER.hash(password)
+            if _PASSWORD_HASHER.check_needs_rehash(password_hash)
+            else None
+        )
+        return valid, replacement
+
+    if password_hash.startswith(("$2a$", "$2b$", "$2y$")):
+        try:
+            valid = bcrypt.checkpw(
+                _legacy_bcrypt_bytes(password), password_hash.encode("utf-8")
+            )
+        except ValueError:
+            return False, None
+        return (True, hash_password(password)) if valid else (False, None)
+
+    return False, None
 
 
 def create_access_token(subject: str | int) -> str:
