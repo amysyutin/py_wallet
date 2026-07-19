@@ -154,7 +154,9 @@ curl -X DELETE http://localhost:8000/wallets/1/balances/1 \
 ```
 
 If `/assets` is called without the `address` query parameter, the app uses
-`EVM1_ADDRESS` from the environment.
+`EVM1_ADDRESS` from the environment. The public endpoint validates EVM addresses,
+caches each result briefly, and limits concurrent live lookups. When lookup
+capacity is exhausted it returns `429` with a `Retry-After` header.
 
 ### Admin access
 
