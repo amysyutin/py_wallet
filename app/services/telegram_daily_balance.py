@@ -61,7 +61,7 @@ class TelegramBotClient:
         self._base_url = settings.telegram_api_base_url.rstrip("/")
         self._timeout = settings.telegram_request_timeout_seconds
 
-    def send_daily_balance(
+    def _send_message(
         self, chat_id: int, text: str, mini_app_url: str, button_text: str
     ) -> None:
         try:
@@ -107,6 +107,38 @@ class TelegramBotClient:
             status_code=status_code,
             retry_after_seconds=retry_after,
         )
+
+    def send_daily_balance(
+        self, chat_id: int, text: str, mini_app_url: str, button_text: str
+    ) -> None:
+        self._send_message(chat_id, text, mini_app_url, button_text)
+
+    def send_start_message(
+        self, chat_id: int, *, language: str, mini_app_url: str
+    ) -> None:
+        if language == "ru":
+            text = (
+                "👋 Добро пожаловать в PyWallet!\n\n"
+                "PyWallet собирает ваши EVM-кошельки в одном месте и показывает:\n"
+                "• общую стоимость портфеля;\n"
+                "• распределение активов;\n"
+                "• историю изменений по дням;\n"
+                "• ежедневные уведомления о балансе.\n\n"
+                "Добавьте кошельки и следите за портфелем в Mini App."
+            )
+            button_text = "Открыть PyWallet"
+        else:
+            text = (
+                "👋 Welcome to PyWallet!\n\n"
+                "PyWallet brings your EVM wallets together and shows:\n"
+                "• total portfolio value;\n"
+                "• asset allocation;\n"
+                "• daily portfolio history;\n"
+                "• optional daily balance notifications.\n\n"
+                "Add your wallets and track your portfolio in the Mini App."
+            )
+            button_text = "Open PyWallet"
+        self._send_message(chat_id, text, mini_app_url, button_text)
 
 
 async def persisted_portfolio_total(

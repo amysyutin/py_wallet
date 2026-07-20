@@ -58,6 +58,12 @@ def configure_telegram(monkeypatch) -> None:
     get_settings.cache_clear()
 
 
+def configure_telegram_webhook(monkeypatch) -> None:
+    configure_telegram(monkeypatch)
+    monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET", "test-webhook-secret")
+    get_settings.cache_clear()
+
+
 def test_validate_init_data_rejects_tampering_and_expiry():
     now = datetime(2026, 7, 19, 12, 0, tzinfo=timezone.utc)
     valid = signed_init_data(auth_date=int(now.timestamp()))
@@ -77,6 +83,70 @@ def test_validate_init_data_rejects_duplicate_fields():
     valid = signed_init_data()
     with pytest.raises(TelegramInitDataError, match="Duplicate"):
         validate_init_data(f"auth_date=1&{valid}", BOT_TOKEN, max_age_seconds=300)
+
+
+@pytest.mark.asyncio
+async def test_start_webhook_sends_localized_mini_app_intro(client, monkeypatch):
+    configure_telegram_webhook(monkeypatch)
+    sent = []
+
+    def capture_start(self, chat_id, *, language, mini_app_url):
+        sent.append((chat_id, language, mini_app_url))
+
+    monkeypatch.setattr(TelegramBotClient, "send_start_message", capture_start)
+    update = {
+        "update_id": 1,
+        "message": {
+            "text": "/start referral",
+            "chat": {"id": 4242},
+            "from": {"language_code": "ru-RU"},
+        },
+    }
+    forbidden = await client.post("/telegram/webhook", json=update)
+    assert forbidden.status_code == 403
+
+    response = await client.post(
+        "/telegram/webhook",
+        json=update,
+        headers={"X-Telegram-Bot-Api-Secret-Token": "test-webhook-secret"},
+    )
+    assert response.status_code == 204
+    assert sent == [(4242, "ru", "https://pywallet.dev/telegram")]
+
+    ignored = await client.post(
+        "/telegram/webhook",
+        json={"message": {"text": "/help", "chat": {"id": 4242}}},
+        headers={"X-Telegram-Bot-Api-Secret-Token": "test-webhook-secret"},
+    )
+    assert ignored.status_code == 204
+    assert len(sent) == 1
+    get_settings.cache_clear()
+
+
+def test_start_message_describes_portfolio_and_opens_mini_app(monkeypatch):
+    config = Settings(
+        app_env="test",
+        jwt_secret="ci-test-secret",
+        telegram_bot_token=BOT_TOKEN,
+    )
+    sent = []
+    monkeypatch.setattr(
+        TelegramBotClient,
+        "_send_message",
+        lambda self, chat_id, text, mini_app_url, button_text: sent.append(
+            (chat_id, text, mini_app_url, button_text)
+        ),
+    )
+
+    TelegramBotClient(config).send_start_message(
+        42, language="ru", mini_app_url="https://pywallet.dev/telegram"
+    )
+
+    assert sent[0][0] == 42
+    assert "общую стоимость портфеля" in sent[0][1]
+    assert "историю изменений по дням" in sent[0][1]
+    assert sent[0][2] == "https://pywallet.dev/telegram"
+    assert sent[0][3] == "Открыть PyWallet"
 
 
 @pytest.mark.asyncio

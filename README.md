@@ -71,6 +71,7 @@ Public endpoints:
 | `POST` | `/auth/register` | Create a user account. |
 | `POST` | `/auth/login` | Return a JWT bearer token. |
 | `POST` | `/auth/telegram` | Validate Telegram Mini App `initData` and return a JWT. |
+| `POST` | `/telegram/webhook` | Telegram-authenticated webhook; `/start` returns an app description and Mini App button. |
 | `GET` | `/assets?address=0x...` | EVM portfolio summary for the provided address. |
 
 Authenticated endpoints require `Authorization: Bearer <token>`:
@@ -228,6 +229,8 @@ cp .env.example .env
 | `TELEGRAM_BOT_TOKEN` | Telegram features | Bot token, supplied only through a local or deployment secret. Never commit it. |
 | `TELEGRAM_BOT_USERNAME` | No | Bot username without `@`; defaults to `py_WalletBot`. |
 | `TELEGRAM_MINI_APP_URL` | No | HTTPS Mini App URL; defaults to `https://pywallet.dev/telegram`. |
+| `TELEGRAM_WEBHOOK_URL` | No | Public HTTPS Bot API webhook URL; defaults to `https://pywallet.dev/api/telegram/webhook`. |
+| `TELEGRAM_WEBHOOK_SECRET` | `/start` webhook | Secret verified against Telegram's `X-Telegram-Bot-Api-Secret-Token` header. |
 | `TELEGRAM_AUTH_MAX_AGE_SECONDS` | No | Maximum accepted age of signed Mini App `initData`; defaults to `300`. |
 | `TELEGRAM_DAILY_BALANCE_ENABLED` | No | Global kill switch for the scheduled sender; defaults to `false`. User opt-in is always additionally required. |
 | `TELEGRAM_API_BASE_URL` | No | Telegram Bot API base URL; override only for tests/proxies. |
@@ -242,6 +245,15 @@ Configure BotFather's Main Mini App and menu button to open
 to `POST /auth/telegram`; the backend verifies its HMAC signature and `auth_date`
 before creating or reusing the Telegram identity. The bot token is never returned,
 logged, or included in frontend code.
+
+The `/telegram/webhook` endpoint handles `/start` in Russian or English and
+returns a short product description with a button that opens the Mini App. After
+deploying the endpoint and setting `TELEGRAM_WEBHOOK_SECRET`, register it without
+printing the bot token or secret:
+
+```bash
+python scripts/configure_telegram_webhook.py
+```
 
 Telegram-only users have nullable email/password fields. They can safely merge into
 an existing account with `POST /auth/telegram/link-email`; usernames are metadata,
