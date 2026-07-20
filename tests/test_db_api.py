@@ -59,6 +59,78 @@ async def test_login_accepts_email_with_different_case(client: AsyncClient):
     assert login.json()["access_token"]
 
 
+async def test_change_password_replaces_credentials(client: AsyncClient):
+    email = "change-password@example.com"
+    old_password = "old-password12"
+    new_password = "new-password34"
+    await client.post("/auth/register", json={"email": email, "password": old_password})
+    login = await client.post(
+        "/auth/login", json={"email": email, "password": old_password}
+    )
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    changed = await client.post(
+        "/auth/change-password",
+        headers=headers,
+        json={"current_password": old_password, "new_password": new_password},
+    )
+
+    assert changed.status_code == 204
+    assert (
+        await client.post(
+            "/auth/login", json={"email": email, "password": old_password}
+        )
+    ).status_code == 401
+    assert (
+        await client.post(
+            "/auth/login", json={"email": email, "password": new_password}
+        )
+    ).status_code == 200
+
+
+async def test_change_password_rejects_wrong_current_password(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    response = await client.post(
+        "/auth/change-password",
+        headers=auth_headers,
+        json={
+            "current_password": "not-the-current-password",
+            "new_password": "new-password34",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Current password is incorrect"
+
+
+async def test_change_password_requires_authentication(client: AsyncClient):
+    response = await client.post(
+        "/auth/change-password",
+        json={
+            "current_password": "old-password12",
+            "new_password": "new-password34",
+        },
+    )
+
+    assert response.status_code == 401
+
+
+async def test_change_password_requires_a_different_password(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    response = await client.post(
+        "/auth/change-password",
+        headers=auth_headers,
+        json={
+            "current_password": "testpass123",
+            "new_password": "testpass123",
+        },
+    )
+
+    assert response.status_code == 422
+
+
 async def test_login_upgrades_legacy_bcrypt_hash(
     client: AsyncClient, db_session: AsyncSession
 ):

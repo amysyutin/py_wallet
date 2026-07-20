@@ -9,6 +9,7 @@ from app.core.normalization import normalize_email
 from app.core.security import (
     create_access_token,
     hash_password,
+    verify_password,
     verify_password_and_update,
 )
 from app.db.models.user import User, UserRole
@@ -16,6 +17,7 @@ from app.db.models.telegram import TelegramAccount, TelegramNotificationSettings
 from app.core.config import get_settings
 from app.deps import CurrentUser, SessionDep
 from app.schemas.auth import (
+    PasswordChangeRequest,
     TelegramAuthRequest,
     TelegramAuthResponse,
     TelegramLinkEmailRequest,
@@ -76,6 +78,31 @@ async def login(payload: UserLogin, session: SessionDep) -> Token:
 @router.get("/me", response_model=UserRead)
 async def me(current_user: CurrentUser) -> UserRead:
     return current_user
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+    payload: PasswordChangeRequest,
+    current_user: CurrentUser,
+    session: SessionDep,
+) -> None:
+    if current_user.auth_hash is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Password login is not configured for this account",
+        )
+    valid = await run_in_threadpool(
+        verify_password, payload.current_password, current_user.auth_hash
+    )
+    if not valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+    current_user.auth_hash = await run_in_threadpool(
+        hash_password, payload.new_password
+    )
+    await session.commit()
 
 
 @router.post("/telegram", response_model=TelegramAuthResponse)
