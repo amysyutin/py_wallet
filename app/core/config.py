@@ -127,6 +127,10 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_bot_username: str = "py_WalletBot"
     telegram_mini_app_url: str = "https://pywallet.dev/telegram"
+    telegram_webhook_url: str = "https://pywallet.dev/api/telegram/webhook"
+    telegram_webhook_secret: str = Field(
+        default="", max_length=256, pattern=r"^[A-Za-z0-9_-]*$"
+    )
     telegram_auth_max_age_seconds: int = Field(default=300, ge=30, le=3600)
     telegram_api_base_url: str = "https://api.telegram.org"
     telegram_request_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
