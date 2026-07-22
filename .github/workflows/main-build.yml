@@ -275,9 +275,8 @@ jobs:
           kustomize edit set image ghcr.io/amysyutin/py_wallet=ghcr.io/${{ github.repository }}:${{ github.sha }}
           echo "Updated image tag to ${{ github.sha }}"
 
-      - name: Commit and push
+      - name: Commit and push deploy branch
         env:
-          GH_TOKEN: ${{ secrets.INFRA_REPO_TOKEN }}
           DEPLOY_BRANCH: deploy/py-wallet/${{ github.sha }}-${{ github.run_attempt }}
         run: |
           cd infra
@@ -288,28 +287,6 @@ jobs:
           git diff --cached --quiet && echo "No changes" && exit 0
           git commit -m "deploy: bump py-wallet image to ${{ github.sha }}"
           git push --set-upstream origin "${DEPLOY_BRANCH}"
-          pr_url=$(gh pr create \
-            --repo amysyutin/py_wallet-infra \
-            --base main \
-            --head "${DEPLOY_BRANCH}" \
-            --title "deploy: bump py-wallet image to ${{ github.sha }}" \
-            --body "Automated image bump from amysyutin/py_wallet@${{ github.sha }}.") || {
-              git push origin --delete "${DEPLOY_BRANCH}"
-              exit 1
-            }
-          echo "Opened ${pr_url}"
-          gh pr list \
-            --repo amysyutin/py_wallet-infra \
-            --state open \
-            --base main \
-            --json number,headRefName \
-            --jq ".[] | select((.headRefName | startswith(\"deploy/py-wallet/\")) and .headRefName != \"${DEPLOY_BRANCH}\") | .number" \
-          | while read -r pr_number; do
-              gh pr close \
-                --repo amysyutin/py_wallet-infra \
-                "${pr_number}" \
-                --comment "Superseded by ${pr_url}."
-            done
 
   notify:
     runs-on: ubuntu-latest
