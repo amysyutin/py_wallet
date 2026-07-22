@@ -115,6 +115,7 @@ class Settings(BaseSettings):
     app_env: AppEnv = "development"
     app_version: str = Field(default="0.1.0", min_length=1, max_length=128)
     build_sha: str = Field(default="unknown", min_length=1, max_length=128)
+    trusted_hosts: str = "localhost,127.0.0.1,test,testserver"
     jwt_secret: str | None = None
     jwt_alg: str = "HS256"
     access_token_ttl_min: int = 60
@@ -194,7 +195,17 @@ class Settings(BaseSettings):
         self.jwt_secret = resolved
         self.jwt_secret_source = source
         self.using_dev_jwt_secret = using_dev
+        if not self.trusted_host_list:
+            raise ValueError("TRUSTED_HOSTS must contain at least one host")
+        if env in ("staging", "production") and "*" in self.trusted_host_list:
+            raise ValueError(
+                "TRUSTED_HOSTS cannot contain '*' in staging or production"
+            )
         return self
+
+    @property
+    def trusted_host_list(self) -> list[str]:
+        return [host.strip() for host in self.trusted_hosts.split(",") if host.strip()]
 
 
 @lru_cache

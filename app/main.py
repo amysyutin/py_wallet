@@ -4,8 +4,10 @@ from time import time
 
 from fastapi import FastAPI
 from fastapi.concurrency import run_in_threadpool
-from prometheus_fastapi_instrumentator import Instrumentator
+from fastapi.responses import Response
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy import select
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.core.config import get_settings
 from app.db.session import engine
@@ -16,6 +18,7 @@ from app.metrics import (
     SNAPSHOT_SCHEDULER_LAST_TICK,
     SNAPSHOT_SCHEDULER_TICKS,
     SNAPSHOT_SCHEDULER_USERS,
+    HttpMetricsMiddleware,
     configure_build_info,
 )
 from app.db.models.wallet import Wallet
@@ -131,6 +134,8 @@ app = FastAPI(
     version=app_settings.app_version,
     lifespan=lifespan,
 )
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=app_settings.trusted_host_list)
+app.add_middleware(HttpMetricsMiddleware)
 app.include_router(router)
 app.include_router(auth_router)
 app.include_router(wallet_groups_router)
@@ -141,9 +146,10 @@ app.include_router(snapshot_jobs_router)
 app.include_router(portfolio_router)
 app.include_router(telegram_router)
 
-Instrumentator().instrument(app).expose(
-    app, endpoint="/metrics", include_in_schema=False
-)
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics() -> Response:
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/")
