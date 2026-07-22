@@ -55,6 +55,12 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
+      - name: Validate release version
+        run: >-
+          python -c 'from pathlib import Path; from app.core.config import Settings;
+          assert Path("VERSION").read_text().strip() ==
+          Settings.model_fields["app_version"].default'
+
       - name: Lint
         run: ruff check .
 

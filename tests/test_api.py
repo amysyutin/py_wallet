@@ -43,7 +43,7 @@ def test_health():
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "healthy"
-    assert response.json()["version"] == "0.1.0"
+    assert response.json()["version"] == "0.2.0"
     assert response.json()["build_sha"] == "unknown"
 
 
@@ -51,7 +51,7 @@ def test_health_live():
     response = client.get("/health/live")
     assert response.status_code == 200
     assert response.json()["status"] == "alive"
-    assert response.json()["version"] == "0.1.0"
+    assert response.json()["version"] == "0.2.0"
     assert response.json()["build_sha"] == "unknown"
 
 
@@ -59,7 +59,7 @@ def test_health_ready():
     response = client.get("/health/ready")
     assert response.status_code == 200
     assert response.json()["status"] == "ready"
-    assert response.json()["version"] == "0.1.0"
+    assert response.json()["version"] == "0.2.0"
     assert response.json()["build_sha"] == "unknown"
 
 
@@ -78,7 +78,7 @@ def test_health_exposes_configured_release_metadata():
 def test_openapi_exposes_application_version():
     response = client.get("/openapi.json")
     assert response.status_code == 200
-    assert response.json()["info"]["version"] == "0.1.0"
+    assert response.json()["info"]["version"] == "0.2.0"
 
 
 @patch("app.routes._assert_database_available", side_effect=Exception("db down"))

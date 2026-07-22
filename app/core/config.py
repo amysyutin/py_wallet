@@ -113,7 +113,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://wallet:wallet@localhost:5432/wallet"
 
     app_env: AppEnv = "development"
-    app_version: str = Field(default="0.1.0", min_length=1, max_length=128)
+    app_version: str = Field(default="0.2.0", min_length=1, max_length=128)
     build_sha: str = Field(default="unknown", min_length=1, max_length=128)
     trusted_hosts: str = "localhost,127.0.0.1,test,testserver"
     jwt_secret: str | None = None
@@ -153,7 +153,7 @@ class Settings(BaseSettings):
     @classmethod
     def normalize_release_metadata(cls, value: object, info) -> object:
         if value is None or (isinstance(value, str) and not value.strip()):
-            return "0.1.0" if info.field_name == "app_version" else "unknown"
+            return "0.2.0" if info.field_name == "app_version" else "unknown"
         if isinstance(value, str):
             return value.strip()
         return value
