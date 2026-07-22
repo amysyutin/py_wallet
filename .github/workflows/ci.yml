@@ -95,11 +95,9 @@ jobs:
             --exit-code 1
 
       - name: pip-audit
-        continue-on-error: true
-        run: pip-audit -r requirements.txt -f json -o pip-audit-report.json
+        run: python scripts/audit_dependencies.py
 
       - name: Bandit
-        continue-on-error: true
         run: bandit -r app/ -ll -f json -o bandit-report.json
 
       - name: Upload security reports

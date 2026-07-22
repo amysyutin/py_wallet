@@ -33,6 +33,12 @@ def test_root():
     assert response.json() == {"status": "ok"}
 
 
+def test_untrusted_host_is_rejected():
+    response = client.get("/", headers={"Host": "attacker.example"})
+    assert response.status_code == 400
+    assert response.text == "Invalid host header"
+
+
 def test_health():
     response = client.get("/health")
     assert response.status_code == 200

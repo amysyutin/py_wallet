@@ -5,6 +5,8 @@ Those values are unbounded and would make time-series cardinality grow forever.
 """
 
 from datetime import datetime, timezone
+from time import perf_counter
+from typing import Awaitable, Callable
 
 from prometheus_client import Counter, Gauge, Histogram
 
@@ -62,6 +64,46 @@ WALLET_SNAPSHOT_FRESHNESS = Histogram(
     ("source",),
     buckets=(60, 300, 900, 1800, 3600, 10800, 21600, 43200, 86400, 604800),
 )
+HTTP_REQUESTS = Counter(
+    "http_requests_total",
+    "HTTP requests processed by method, route template, and status.",
+    ("method", "handler", "status"),
+)
+HTTP_REQUEST_DURATION = Histogram(
+    "http_request_duration_seconds",
+    "HTTP request duration by method and route template.",
+    ("method", "handler"),
+)
+
+
+class HttpMetricsMiddleware:
+    def __init__(self, app: Callable[..., Awaitable[None]]) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        started = perf_counter()
+        status_code = 500
+
+        async def send_wrapper(message) -> None:
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_wrapper)
+        finally:
+            route = scope.get("route")
+            handler = getattr(route, "path", "unmatched")
+            method = scope.get("method", "UNKNOWN")
+            HTTP_REQUESTS.labels(method, handler, str(status_code)).inc()
+            HTTP_REQUEST_DURATION.labels(method, handler).observe(
+                perf_counter() - started
+            )
 
 
 def configure_build_info(*, version: str, sha: str, environment: str) -> None:

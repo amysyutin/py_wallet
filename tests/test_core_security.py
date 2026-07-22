@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
+import jwt
 import pytest
-from jose import jwt
 
 from app.core.config import get_settings
 from app.core.security import (

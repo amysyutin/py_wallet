@@ -73,6 +73,21 @@ def test_production_valid_generated_secret_ok():
     assert len(s.jwt_secret) >= 32
 
 
+def test_production_rejects_wildcard_trusted_host():
+    secret = secrets.token_urlsafe(48)
+    with pytest.raises(ValidationError):
+        _settings(APP_ENV="production", JWT_SECRET=secret, trusted_hosts="*")
+
+
+def test_trusted_hosts_are_parsed_from_csv():
+    s = _settings(
+        APP_ENV="test",
+        JWT_SECRET=None,
+        trusted_hosts="localhost, testserver,*.example.com",
+    )
+    assert s.trusted_host_list == ["localhost", "testserver", "*.example.com"]
+
+
 def test_staging_same_rules_as_production():
     with pytest.raises(ValidationError):
         _settings(APP_ENV="staging", JWT_SECRET=None)
