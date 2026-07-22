@@ -104,10 +104,17 @@ Supported `chain_type` values for EVM wallets are `mainnet`, `base`, `bnb`,
 `arbitrum`, and `linea`. Manual wallets use `chain_type=manual`. Snapshot
 collection currently supports EVM wallets only.
 
-Release metadata can be supplied with `APP_VERSION` (defaults to `0.1.0`) and
+Release metadata can be supplied with `APP_VERSION` (defaults to `0.2.0`) and
 `BUILD_SHA` (defaults to `unknown`). These non-sensitive values are returned by
 `/health`, `/health/live`, and `/health/ready`; `APP_VERSION` is also used for
 the OpenAPI `info.version`. Do not put credentials or tokens in these variables.
+
+## Releases
+
+`VERSION` is the source of truth for the component version. Immutable `vX.Y.Z`
+tags trigger the release workflow, which verifies the tag, promotes the already
+tested `:<commit-sha>` image to `:vX.Y.Z`, and creates a GitHub Release. Product
+releases and their exact component SHAs are recorded in `py_wallet-infra`.
 
 ## Product metrics
 

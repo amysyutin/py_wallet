@@ -10,6 +10,20 @@ Deployment and platform changes are tracked separately in
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-22
+
+### Added
+
+- Telegram Mini App authentication and bot integration.
+- Wallet groups, manual wallets and balances, and expanded portfolio APIs.
+- Snapshot-service integration, scheduled snapshot jobs, and product metrics.
+- Component SemVer validation and immutable release-image promotion.
+
+### Security
+
+- Hardened password handling, configuration validation, dependency auditing,
+  and the validated GitOps deployment path.
+
 ## [0.1.0] - 2026-06-10
 
 First public version of the crypto portfolio service.
@@ -44,5 +58,6 @@ First public version of the crypto portfolio service.
 
 See [`docs/SECURITY_BACKLOG.md`](docs/SECURITY_BACKLOG.md) for the full hardening backlog.
 
-[Unreleased]: https://github.com/amysyutin/py_wallet/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/amysyutin/py_wallet/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/amysyutin/py_wallet/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/amysyutin/py_wallet/releases/tag/v0.1.0
