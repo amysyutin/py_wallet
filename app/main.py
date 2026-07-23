@@ -32,6 +32,7 @@ from app.routers.wallets import router as wallets_router
 from app.routers.telegram import router as telegram_router
 from app.routes import router
 from app.services.snapshot_jobs import SnapshotServiceError, create_snapshot_job
+from app.services.telegram_daily_balance import TelegramBotClient, TelegramSendError
 
 logger = get_logger(__name__)
 app_settings = get_settings()
@@ -84,6 +85,29 @@ async def _snapshot_scheduler_loop() -> None:
         await asyncio.sleep(interval)
 
 
+async def _configure_telegram_webhook() -> None:
+    settings = get_settings()
+    if not (
+        settings.telegram_bot_token
+        and settings.telegram_webhook_secret
+        and settings.telegram_webhook_url
+    ):
+        logger.warning(
+            "Telegram webhook is disabled: bot token, webhook secret, or URL is missing"
+        )
+        return
+    try:
+        await run_in_threadpool(
+            TelegramBotClient(settings).configure_webhook,
+            settings.telegram_webhook_url,
+            settings.telegram_webhook_secret,
+        )
+    except TelegramSendError as exc:
+        logger.error("Telegram webhook configuration failed: %s", exc.code)
+    else:
+        logger.info("Telegram webhook configured")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
@@ -111,6 +135,8 @@ async def lifespan(app: FastAPI):
         logger.warning(
             "Using implicit DEV_JWT_SECRET — not for production. Set JWT_SECRET in .env."
         )
+
+    await _configure_telegram_webhook()
 
     scheduler_task: asyncio.Task[None] | None = None
     if settings.snapshot_scheduler_enabled:

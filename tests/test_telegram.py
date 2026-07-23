@@ -145,8 +145,49 @@ def test_start_message_describes_portfolio_and_opens_mini_app(monkeypatch):
     assert sent[0][0] == 42
     assert "общую стоимость портфеля" in sent[0][1]
     assert "историю изменений по дням" in sent[0][1]
+    assert "нажми кнопку «Открыть PyWallet»" in sent[0][1]
     assert sent[0][2] == "https://pywallet.dev/telegram"
     assert sent[0][3] == "Открыть PyWallet"
+
+
+def test_configure_webhook_registers_message_updates(monkeypatch):
+    config = Settings(
+        app_env="test",
+        jwt_secret="ci-test-secret",
+        telegram_bot_token=BOT_TOKEN,
+    )
+    requests = []
+
+    class Response:
+        ok = True
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"ok": True, "result": True}
+
+    def capture_post(url, *, json, timeout):
+        requests.append((url, json, timeout))
+        return Response()
+
+    monkeypatch.setattr(
+        "app.services.telegram_daily_balance.requests.post", capture_post
+    )
+    TelegramBotClient(config).configure_webhook(
+        "https://pywallet.dev/api/telegram/webhook", "webhook-secret"
+    )
+
+    assert requests == [
+        (
+            f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook",
+            {
+                "url": "https://pywallet.dev/api/telegram/webhook",
+                "secret_token": "webhook-secret",
+                "allowed_updates": ["message"],
+            },
+            10.0,
+        )
+    ]
 
 
 @pytest.mark.asyncio

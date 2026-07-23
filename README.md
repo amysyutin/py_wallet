@@ -255,8 +255,9 @@ logged, or included in frontend code.
 
 The `/telegram/webhook` endpoint handles `/start` in Russian or English and
 returns a short product description with a button that opens the Mini App. After
-deploying the endpoint and setting `TELEGRAM_WEBHOOK_SECRET`, register it without
-printing the bot token or secret:
+deploying the endpoint and setting `TELEGRAM_WEBHOOK_SECRET`, the API registers
+the webhook automatically at startup. To register it manually without printing
+the bot token or secret:
 
 ```bash
 python scripts/configure_telegram_webhook.py

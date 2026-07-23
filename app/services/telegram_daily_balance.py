@@ -113,6 +113,31 @@ class TelegramBotClient:
     ) -> None:
         self._send_message(chat_id, text, mini_app_url, button_text)
 
+    def configure_webhook(self, webhook_url: str, secret_token: str) -> None:
+        try:
+            response = requests.post(
+                f"{self._base_url}/bot{self._token}/setWebhook",
+                json={
+                    "url": webhook_url,
+                    "secret_token": secret_token,
+                    "allowed_updates": ["message"],
+                },
+                timeout=self._timeout,
+            )
+        except requests.RequestException:
+            raise TelegramSendError("telegram_webhook_network_error") from None
+
+        try:
+            payload = response.json()
+        except (requests.JSONDecodeError, ValueError):
+            payload = {}
+        if response.ok and payload.get("ok"):
+            return
+        raise TelegramSendError(
+            f"telegram_webhook_http_{response.status_code}",
+            status_code=response.status_code,
+        )
+
     def send_start_message(
         self, chat_id: int, *, language: str, mini_app_url: str
     ) -> None:
@@ -124,7 +149,7 @@ class TelegramBotClient:
                 "• распределение активов;\n"
                 "• историю изменений по дням;\n"
                 "• ежедневные уведомления о балансе.\n\n"
-                "Добавьте кошельки и следите за портфелем в Mini App."
+                "Чтобы начать, нажми кнопку «Открыть PyWallet» ниже."
             )
             button_text = "Открыть PyWallet"
         else:
@@ -135,7 +160,7 @@ class TelegramBotClient:
                 "• asset allocation;\n"
                 "• daily portfolio history;\n"
                 "• optional daily balance notifications.\n\n"
-                "Add your wallets and track your portfolio in the Mini App."
+                "To get started, tap “Open PyWallet” below."
             )
             button_text = "Open PyWallet"
         self._send_message(chat_id, text, mini_app_url, button_text)
