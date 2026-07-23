@@ -92,10 +92,10 @@ async def _snapshot_scheduler_loop() -> None:
 async def _configure_telegram_webhook() -> None:
     settings = get_settings()
     webhook_secret = resolve_telegram_webhook_secret(settings)
-    if not (settings.telegram_bot_token and webhook_secret and settings.telegram_webhook_url):
-        logger.warning(
-            "Telegram webhook is disabled: bot token or URL is missing"
-        )
+    if not (
+        settings.telegram_bot_token and webhook_secret and settings.telegram_webhook_url
+    ):
+        logger.warning("Telegram webhook is disabled: bot token or URL is missing")
         return
     try:
         await run_in_threadpool(

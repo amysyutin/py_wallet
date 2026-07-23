@@ -58,9 +58,7 @@ async def telegram_webhook(
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "Telegram webhook is disabled"
         )
-    if secret_token is None or not compare_digest(
-        secret_token, webhook_secret
-    ):
+    if secret_token is None or not compare_digest(secret_token, webhook_secret):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "Invalid Telegram webhook secret"
         )
