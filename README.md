@@ -237,7 +237,7 @@ cp .env.example .env
 | `TELEGRAM_BOT_USERNAME` | No | Bot username without `@`; defaults to `py_WalletBot`. |
 | `TELEGRAM_MINI_APP_URL` | No | HTTPS Mini App URL; defaults to `https://pywallet.dev/telegram`. |
 | `TELEGRAM_WEBHOOK_URL` | No | Public HTTPS Bot API webhook URL; defaults to `https://pywallet.dev/api/telegram/webhook`. |
-| `TELEGRAM_WEBHOOK_SECRET` | `/start` webhook | Secret verified against Telegram's `X-Telegram-Bot-Api-Secret-Token` header. |
+| `TELEGRAM_WEBHOOK_SECRET` | No | Optional explicit secret verified against Telegram's webhook header. When omitted, the API derives a stable webhook-only secret from `TELEGRAM_BOT_TOKEN`. |
 | `TELEGRAM_AUTH_MAX_AGE_SECONDS` | No | Maximum accepted age of signed Mini App `initData`; defaults to `300`. |
 | `TELEGRAM_DAILY_BALANCE_ENABLED` | No | Global kill switch for the scheduled sender; defaults to `false`. User opt-in is always additionally required. |
 | `TELEGRAM_API_BASE_URL` | No | Telegram Bot API base URL; override only for tests/proxies. |

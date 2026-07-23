@@ -22,6 +22,7 @@ from app.services.telegram_daily_balance import (
     TelegramBotClient,
     TelegramSendError,
     format_daily_balance,
+    resolve_telegram_webhook_secret,
     send_due_daily_balances,
 )
 
@@ -62,6 +63,21 @@ def configure_telegram_webhook(monkeypatch) -> None:
     configure_telegram(monkeypatch)
     monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET", "test-webhook-secret")
     get_settings.cache_clear()
+
+
+def test_webhook_secret_is_derived_when_only_bot_token_is_configured():
+    config = Settings(
+        app_env="test",
+        jwt_secret="ci-test-secret",
+        telegram_bot_token=BOT_TOKEN,
+    )
+
+    first = resolve_telegram_webhook_secret(config)
+    second = resolve_telegram_webhook_secret(config)
+
+    assert first == second
+    assert len(first) == 64
+    assert BOT_TOKEN not in first
 
 
 def test_validate_init_data_rejects_tampering_and_expiry():

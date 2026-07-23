@@ -9,7 +9,11 @@ from app.core.config import get_settings
 from app.db.models.telegram import TelegramAccount, TelegramNotificationSettings
 from app.deps import CurrentUser, SessionDep
 from app.schemas.telegram import TelegramSettingsRead, TelegramSettingsUpdate
-from app.services.telegram_daily_balance import TelegramBotClient, TelegramSendError
+from app.services.telegram_daily_balance import (
+    TelegramBotClient,
+    TelegramSendError,
+    resolve_telegram_webhook_secret,
+)
 
 router = APIRouter(prefix="/telegram", tags=["telegram"])
 
@@ -49,12 +53,13 @@ async def telegram_webhook(
     ] = None,
 ) -> Response:
     settings = get_settings()
-    if not settings.telegram_bot_token or not settings.telegram_webhook_secret:
+    webhook_secret = resolve_telegram_webhook_secret(settings)
+    if not settings.telegram_bot_token or not webhook_secret:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "Telegram webhook is disabled"
         )
     if secret_token is None or not compare_digest(
-        secret_token, settings.telegram_webhook_secret
+        secret_token, webhook_secret
     ):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "Invalid Telegram webhook secret"
