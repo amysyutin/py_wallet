@@ -155,23 +155,14 @@ class TelegramBotClient:
         if language == "ru":
             text = (
                 "👋 Добро пожаловать в PyWallet!\n\n"
-                "PyWallet собирает ваши EVM-кошельки в одном месте и показывает:\n"
-                "• общую стоимость портфеля;\n"
-                "• распределение активов;\n"
-                "• историю изменений по дням;\n"
-                "• ежедневные уведомления о балансе.\n\n"
-                "Чтобы начать, нажми кнопку «Открыть PyWallet» ниже."
+                "Чтобы перейти к своим кошелькам и портфелю, "
+                "нажми «Открыть PyWallet»."
             )
             button_text = "Открыть PyWallet"
         else:
             text = (
                 "👋 Welcome to PyWallet!\n\n"
-                "PyWallet brings your EVM wallets together and shows:\n"
-                "• total portfolio value;\n"
-                "• asset allocation;\n"
-                "• daily portfolio history;\n"
-                "• optional daily balance notifications.\n\n"
-                "To get started, tap “Open PyWallet” below."
+                "To view your wallets and portfolio, tap “Open PyWallet”."
             )
             button_text = "Open PyWallet"
         self._send_message(chat_id, text, mini_app_url, button_text)

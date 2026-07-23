@@ -139,7 +139,7 @@ async def test_start_webhook_sends_localized_mini_app_intro(client, monkeypatch)
     get_settings.cache_clear()
 
 
-def test_start_message_describes_portfolio_and_opens_mini_app(monkeypatch):
+def test_start_message_opens_mini_app_without_repeating_profile_copy(monkeypatch):
     config = Settings(
         app_env="test",
         jwt_secret="ci-test-secret",
@@ -159,9 +159,10 @@ def test_start_message_describes_portfolio_and_opens_mini_app(monkeypatch):
     )
 
     assert sent[0][0] == 42
-    assert "общую стоимость портфеля" in sent[0][1]
-    assert "историю изменений по дням" in sent[0][1]
-    assert "нажми кнопку «Открыть PyWallet»" in sent[0][1]
+    assert sent[0][1] == (
+        "👋 Добро пожаловать в PyWallet!\n\n"
+        "Чтобы перейти к своим кошелькам и портфелю, нажми «Открыть PyWallet»."
+    )
     assert sent[0][2] == "https://pywallet.dev/telegram"
     assert sent[0][3] == "Открыть PyWallet"
 
