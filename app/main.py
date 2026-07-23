@@ -32,7 +32,11 @@ from app.routers.wallets import router as wallets_router
 from app.routers.telegram import router as telegram_router
 from app.routes import router
 from app.services.snapshot_jobs import SnapshotServiceError, create_snapshot_job
-from app.services.telegram_daily_balance import TelegramBotClient, TelegramSendError
+from app.services.telegram_daily_balance import (
+    TelegramBotClient,
+    TelegramSendError,
+    resolve_telegram_webhook_secret,
+)
 
 logger = get_logger(__name__)
 app_settings = get_settings()
@@ -87,20 +91,17 @@ async def _snapshot_scheduler_loop() -> None:
 
 async def _configure_telegram_webhook() -> None:
     settings = get_settings()
-    if not (
-        settings.telegram_bot_token
-        and settings.telegram_webhook_secret
-        and settings.telegram_webhook_url
-    ):
+    webhook_secret = resolve_telegram_webhook_secret(settings)
+    if not (settings.telegram_bot_token and webhook_secret and settings.telegram_webhook_url):
         logger.warning(
-            "Telegram webhook is disabled: bot token, webhook secret, or URL is missing"
+            "Telegram webhook is disabled: bot token or URL is missing"
         )
         return
     try:
         await run_in_threadpool(
             TelegramBotClient(settings).configure_webhook,
             settings.telegram_webhook_url,
-            settings.telegram_webhook_secret,
+            webhook_secret,
         )
     except TelegramSendError as exc:
         logger.error("Telegram webhook configuration failed: %s", exc.code)

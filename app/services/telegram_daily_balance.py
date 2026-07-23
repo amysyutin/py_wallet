@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from hashlib import sha256
 from zoneinfo import ZoneInfo
 
 import requests
@@ -37,6 +38,16 @@ class TelegramSendError(RuntimeError):
         self.code = code
         self.status_code = status_code
         self.retry_after_seconds = retry_after_seconds
+
+
+def resolve_telegram_webhook_secret(settings: Settings) -> str:
+    if settings.telegram_webhook_secret:
+        return settings.telegram_webhook_secret
+    if not settings.telegram_bot_token:
+        return ""
+    return sha256(
+        f"pywallet-telegram-webhook-v1:{settings.telegram_bot_token}".encode()
+    ).hexdigest()
 
 
 def format_daily_balance(
