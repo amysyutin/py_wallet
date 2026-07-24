@@ -351,6 +351,30 @@ async def test_patch_evm_wallet_cannot_clear_address(
     assert r.status_code == 422
 
 
+async def test_patch_wallet_rejects_null_required_fields(
+    client: AsyncClient, auth_headers: dict
+):
+    wallet = (
+        await client.post(
+            "/wallets",
+            headers=auth_headers,
+            json={
+                "label": "Required",
+                "address": "0x00000000000000000000000000000000000000ad",
+                "chain_type": "mainnet",
+            },
+        )
+    ).json()
+
+    for payload in ({"label": None}, {"chain_type": None}, {"is_active": None}):
+        response = await client.patch(
+            f"/wallets/{wallet['id']}",
+            headers=auth_headers,
+            json=payload,
+        )
+        assert response.status_code == 422
+
+
 async def test_patch_manual_wallet_cannot_change_chain_type(
     client: AsyncClient, auth_headers: dict
 ):

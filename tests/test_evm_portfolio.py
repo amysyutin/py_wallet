@@ -159,6 +159,20 @@ def test_summarize_chain_timeout_isolated(_mock_get_balance):
 
 
 @patch(f"{MODULE}.get_balance")
+def test_summarize_chain_does_not_expose_rpc_url(mock_get_balance):
+    secret_url = "https://rpc.example/v2/PLACEHOLDER_API_KEY"
+    mock_get_balance.side_effect = requests.HTTPError(
+        f"unauthorized for url: {secret_url}"
+    )
+
+    with patch(f"{MODULE}.CHAIN_RPC", {"base": secret_url}):
+        cs = summarize_chain("base", "0xABC")
+
+    assert cs.error_message == "RPC request failed"
+    assert "PLACEHOLDER_API_KEY" not in cs.error_message
+
+
+@patch(f"{MODULE}.get_balance")
 def test_summarize_chain_rate_limit_isolated(mock_get_balance):
     response = requests.Response()
     response.status_code = 429

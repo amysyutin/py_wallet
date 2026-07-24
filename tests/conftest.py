@@ -1,24 +1,46 @@
+# ruff: noqa: E402
+# Test isolation variables must be validated before importing application modules.
 import os
+import re
+from urllib.parse import urlsplit
 
 os.environ.setdefault("APP_ENV", "test")
 os.environ.setdefault("JWT_SECRET", "ci-test-secret")
 
+TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
+if not TEST_DATABASE_URL:
+    raise RuntimeError(
+        "TEST_DATABASE_URL is required; tests never fall back to DATABASE_URL"
+    )
+test_database_name = (urlsplit(TEST_DATABASE_URL).path or "").lstrip("/")
+if re.search(r"(^|_)test($|_)", test_database_name.lower()) is None:
+    raise RuntimeError(
+        "TEST_DATABASE_URL database name must contain a standalone 'test' segment"
+    )
+os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+
 from collections.abc import AsyncGenerator
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
 import app.db.models  # noqa: F401
 import app.routes as app_routes
-from app.core.config import get_settings, settings
+from app.core.config import get_settings
 from app.db.base import Base
+from app.db.models.snapshot_service import (
+    ChainSnapshot,
+    SnapshotBalanceSnapshot,
+    SnapshotRun,
+    WalletSnapshot,
+)
 from app.db.session import get_session
 from app.main import app
 from app.services.admin_promote import PromoteAdminStatus, promote_admin_by_email
-
-TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", settings.database_url)
 
 test_engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
 
@@ -41,13 +63,25 @@ def setup_test_db():
 
     original_health_engine = app_routes.engine
     app_routes.engine = test_engine
+    alembic_config = Config("alembic.ini")
+    command.downgrade(alembic_config, "base")
+    command.upgrade(alembic_config, "head")
 
-    async def _init():
-        async with test_engine.begin() as conn:
-            await conn.run_sync(Base.metadata.drop_all)
-            await conn.run_sync(Base.metadata.create_all)
+    async def _create_snapshot_read_models() -> None:
+        async with test_engine.begin() as connection:
+            await connection.run_sync(
+                lambda sync_connection: Base.metadata.create_all(
+                    sync_connection,
+                    tables=[
+                        SnapshotRun.__table__,
+                        WalletSnapshot.__table__,
+                        ChainSnapshot.__table__,
+                        SnapshotBalanceSnapshot.__table__,
+                    ],
+                )
+            )
 
-    asyncio.run(_init())
+    asyncio.run(_create_snapshot_read_models())
     yield
     app_routes.engine = original_health_engine
 

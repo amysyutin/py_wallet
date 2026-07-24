@@ -3,6 +3,7 @@ import asyncio
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from app.core.config import get_settings
 from app.log import get_logger
@@ -36,6 +37,19 @@ from app.services.wallet_view import (
 
 router = APIRouter(prefix="/wallets", tags=["wallets"])
 logger = get_logger(__name__)
+
+
+def _is_active_evm_duplicate(exc: IntegrityError) -> bool:
+    current: BaseException | None = exc
+    while current is not None:
+        if getattr(
+            current, "constraint_name", None
+        ) == "uq_wallets_active_evm_address" or "uq_wallets_active_evm_address" in str(
+            current
+        ):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 async def _trigger_wallet_snapshot_background(*, user_id: int, wallet_id: int) -> None:
@@ -147,7 +161,16 @@ async def create_wallet(
         notes=payload.notes,
     )
     session.add(wallet)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        if not _is_active_evm_duplicate(exc):
+            raise
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An active wallet with this EVM address already exists",
+        ) from None
     await session.refresh(wallet)
 
     settings = get_settings()
@@ -291,7 +314,16 @@ async def update_wallet(
     for field, value in updates.items():
         setattr(wallet, field, value)
 
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        if not _is_active_evm_duplicate(exc):
+            raise
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An active wallet with this EVM address already exists",
+        ) from None
     await session.refresh(wallet)
     return wallet
 
@@ -333,7 +365,16 @@ async def restore_wallet(
                 exclude_wallet_id=wallet.id,
             )
         wallet.is_active = True
-        await session.commit()
+        try:
+            await session.commit()
+        except IntegrityError as exc:
+            await session.rollback()
+            if not _is_active_evm_duplicate(exc):
+                raise
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="An active wallet with this EVM address already exists",
+            ) from None
         await session.refresh(wallet)
 
     return wallet

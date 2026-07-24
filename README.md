@@ -405,11 +405,18 @@ uvicorn app.main:app --reload --port 8000
 
 ## Testing
 
-Tests require PostgreSQL. Start the local database and run:
+Tests require a dedicated PostgreSQL database whose name contains a standalone
+`test` segment (for example, `wallet_test`).
+The test suite refuses to use the application database and rebuilds the
+dedicated API schema through Alembic. It then creates the snapshot-service
+read-model tables from the API's read-only mappings for isolated tests;
+production ownership of those tables remains with snapshot-service migrations:
 
 ```bash
 docker compose up -d postgres
-pytest -v
+docker compose exec postgres createdb -U wallet wallet_test
+TEST_DATABASE_URL=postgresql+asyncpg://wallet:wallet@localhost:5432/wallet_test \
+  pytest -v
 ```
 
 Run the fast checks used by CI:
@@ -417,7 +424,8 @@ Run the fast checks used by CI:
 ```bash
 ruff check .
 black --check .
-pytest -m "not slow and not e2e" -v --tb=short
+TEST_DATABASE_URL=postgresql+asyncpg://wallet:wallet@localhost:5432/wallet_test \
+  pytest -m "not slow and not e2e" -v --tb=short
 ```
 
 The test suite is designed to run without external network calls or real

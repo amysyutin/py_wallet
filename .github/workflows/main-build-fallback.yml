@@ -1,0 +1,41 @@
+name: Main Build fallback
+
+on:
+  pull_request_target:
+    types:
+      - closed
+    branches:
+      - main
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch-main-build:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Dispatch Main Build for merged main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          sleep 20
+          existing_runs="$(
+            gh api \
+              "/repos/${GITHUB_REPOSITORY}/actions/workflows/main-build.yml/runs?head_sha=${MERGE_SHA}&per_page=1" \
+              --jq '.total_count'
+          )"
+          if [ "${existing_runs}" -gt 0 ]; then
+            echo "Main Build already exists for ${MERGE_SHA}"
+            exit 0
+          fi
+
+          echo "Main Build is missing for ${MERGE_SHA}; dispatching fallback"
+          gh api \
+            --method POST \
+            "/repos/${GITHUB_REPOSITORY}/actions/workflows/main-build.yml/dispatches" \
+            -f ref=main

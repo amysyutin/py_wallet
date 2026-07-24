@@ -3,7 +3,16 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    func,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -18,6 +27,18 @@ if TYPE_CHECKING:
 
 class Wallet(Base):
     __tablename__ = "wallets"
+    __table_args__ = (
+        Index("ix_wallets_user_id_is_active", "user_id", "is_active"),
+        Index(
+            "uq_wallets_active_evm_address",
+            "user_id",
+            text("lower(btrim(address))"),
+            unique=True,
+            postgresql_where=text(
+                "wallet_type = 'evm' AND is_active IS TRUE AND address IS NOT NULL"
+            ),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(

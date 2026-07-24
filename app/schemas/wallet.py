@@ -50,6 +50,16 @@ class WalletUpdate(BaseModel):
     is_active: bool | None = None
     notes: str | None = Field(default=None, max_length=500)
 
+    @model_validator(mode="after")
+    def reject_null_for_required_fields(self) -> "WalletUpdate":
+        for field_name in ("label", "chain_type", "is_active"):
+            if (
+                field_name in self.model_fields_set
+                and getattr(self, field_name) is None
+            ):
+                raise ValueError(f"{field_name} cannot be null")
+        return self
+
 
 class WalletRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)

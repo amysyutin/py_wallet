@@ -1,7 +1,7 @@
 from datetime import time
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
@@ -20,6 +20,16 @@ class TelegramSettingsUpdate(BaseModel):
     timezone: str | None = Field(default=None, min_length=1, max_length=64)
     daily_at: time | None = None
     language: Literal["ru", "en"] | None = None
+
+    @model_validator(mode="after")
+    def reject_explicit_nulls(self) -> "TelegramSettingsUpdate":
+        for field_name in ("enabled", "timezone", "daily_at", "language"):
+            if (
+                field_name in self.model_fields_set
+                and getattr(self, field_name) is None
+            ):
+                raise ValueError(f"{field_name} cannot be null")
+        return self
 
     @field_validator("timezone")
     @classmethod
