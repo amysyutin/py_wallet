@@ -4,7 +4,7 @@ import asyncio
 
 from fastapi.testclient import TestClient
 from app.main import app
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from types import SimpleNamespace
 
 import pytest
@@ -86,6 +86,49 @@ def test_health_ready_db_unavailable(_mock_db):
     response = client.get("/health/ready")
     assert response.status_code == 503
     assert response.json()["detail"] == "database unavailable"
+
+
+def test_health_ready_snapshot_schema_missing():
+    connection = AsyncMock()
+    connection.scalar.return_value = False
+    connection_context = MagicMock()
+    connection_context.__aenter__ = AsyncMock(return_value=connection)
+    connection_context.__aexit__ = AsyncMock(return_value=None)
+    unavailable_engine = MagicMock()
+    unavailable_engine.connect.return_value = connection_context
+
+    with patch("app.routes.engine", unavailable_engine):
+        response = client.get("/health/ready")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "database unavailable"
+    connection.execute.assert_awaited_once()
+    connection.scalar.assert_awaited_once()
+
+
+def test_health_ready_can_skip_snapshot_schema_for_isolated_smoke():
+    connection = AsyncMock()
+    connection_context = MagicMock()
+    connection_context.__aenter__ = AsyncMock(return_value=connection)
+    connection_context.__aexit__ = AsyncMock(return_value=None)
+    isolated_engine = MagicMock()
+    isolated_engine.connect.return_value = connection_context
+    isolated_settings = SimpleNamespace(
+        app_version="0.2.0",
+        build_sha="isolated-smoke",
+        snapshot_schema_required=False,
+    )
+
+    with (
+        patch("app.routes.engine", isolated_engine),
+        patch("app.routes.get_settings", return_value=isolated_settings),
+    ):
+        response = client.get("/health/ready")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ready"
+    connection.execute.assert_awaited_once()
+    connection.scalar.assert_not_awaited()
 
 
 def test_metrics():

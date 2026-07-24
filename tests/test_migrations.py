@@ -1,8 +1,16 @@
+from alembic import command
+from alembic.config import Config
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
-async def test_snapshot_read_model_tables_are_migrated(db_session: AsyncSession):
+def test_api_alembic_ignores_snapshot_service_owned_schema():
+    command.check(Config("alembic.ini"))
+
+
+async def test_snapshot_read_model_tables_are_available_for_api_tests(
+    db_session: AsyncSession,
+):
     for table_name in (
         "snapshot_runs",
         "wallet_snapshots",

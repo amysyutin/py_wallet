@@ -10,6 +10,7 @@ from alembic import context
 import app.db.models  # noqa: F401  — регистрирует все модели в Base.metadata
 from app.core.config import settings
 from app.db.base import Base
+from app.db.models.snapshot_service import SNAPSHOT_SERVICE_OWNED_TABLE_NAMES
 
 config = context.config
 
@@ -22,6 +23,16 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def include_api_owned_objects(
+    schema_item, name: str | None, type_: str, reflected: bool, compare_to
+) -> bool:
+    """Keep snapshot-service-owned tables out of the API migration history."""
+    if type_ == "table" and name in SNAPSHOT_SERVICE_OWNED_TABLE_NAMES:
+        return False
+    table_name = getattr(getattr(schema_item, "table", None), "name", None)
+    return table_name not in SNAPSHOT_SERVICE_OWNED_TABLE_NAMES
+
+
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
@@ -30,6 +41,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
+        include_object=include_api_owned_objects,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -40,6 +52,7 @@ def do_run_migrations(connection: Connection) -> None:
         connection=connection,
         target_metadata=target_metadata,
         compare_type=True,
+        include_object=include_api_owned_objects,
     )
     with context.begin_transaction():
         context.run_migrations()

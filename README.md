@@ -227,6 +227,7 @@ cp .env.example .env
 | `JWT_SECRET` | Staging/Production | Secret used to sign access tokens. Required in staging/production (minimum 32 characters). |
 | `JWT_ALG` | No | JWT algorithm. Only `HS256` is allowed. Defaults to `HS256`. |
 | `ACCESS_TOKEN_TTL_MIN` | No | Access token lifetime in minutes. Defaults to `60`. |
+| `SNAPSHOT_SCHEMA_REQUIRED` | No | Require snapshot-service tables in `/health/ready`; defaults to `true`. Set to `false` only for isolated API smoke environments that do not run snapshot-service. |
 | `EVM1_ADDRESS` | For default `/assets` address | Default EVM wallet address. |
 | `RPC_URL_MAINNET` | For Mainnet aggregation | Comma-separated Ethereum Mainnet RPC URLs. |
 | `RPC_URL_BASE` | For Base aggregation | Comma-separated Base RPC URLs. |
@@ -430,6 +431,13 @@ TEST_DATABASE_URL=postgresql+asyncpg://wallet:wallet@localhost:5432/wallet_test 
 
 The test suite is designed to run without external network calls or real
 secrets. External APIs are mocked in tests.
+
+The API and snapshot-service intentionally share one PostgreSQL database but
+use separate Alembic version tables. Before the API becomes ready,
+snapshot-service must apply its own migrations so that `snapshot_runs`,
+`wallet_snapshots`, `chain_snapshots`, and `snapshot_balance_snapshots` exist.
+The production manifests enforce this with the snapshot-service PreSync
+migration job; `/health/ready` verifies the resulting read-model schema.
 
 ### Test Markers
 

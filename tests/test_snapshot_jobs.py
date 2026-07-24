@@ -163,7 +163,15 @@ async def test_snapshot_jobs_list_and_get(
         scope_type="all",
         status="pending",
     )
-    db_session.add_all([run_ok, run_pending])
+    run_group = SnapshotRun(
+        user_id=db_wallet.user_id,
+        wallet_id=None,
+        group_id=73,
+        trigger_type="manual",
+        scope_type="group",
+        status="pending",
+    )
+    db_session.add_all([run_ok, run_pending, run_group])
     await db_session.flush()
 
     all_jobs = await client.get("/snapshot-jobs", headers=auth_headers)
@@ -182,6 +190,13 @@ async def test_snapshot_jobs_list_and_get(
     assert body["status"] == "success"
     assert body["scope_type"] == "wallet"
     assert body["wallet_id"] == db_wallet.id
+
+    group_detail = await client.get(
+        f"/snapshot-jobs/{run_group.id}", headers=auth_headers
+    )
+    assert group_detail.status_code == 200
+    assert group_detail.json()["scope_type"] == "group"
+    assert group_detail.json()["group_id"] == 73
 
 
 async def test_snapshot_jobs_filter_auto_job_by_owned_wallet(

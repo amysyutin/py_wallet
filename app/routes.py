@@ -11,6 +11,7 @@ from sqlalchemy import text
 from fastapi.routing import APIRouter
 from app.config import ADDRESS_EVM
 from app.core.config import get_settings
+from app.db.models.snapshot_service import SNAPSHOT_SERVICE_TABLE_NAMES
 from app.services.portfolio import summarize_all
 from app.db.session import engine
 
@@ -25,6 +26,13 @@ _EVM_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 _assets_cache: OrderedDict[str, tuple[float, dict]] = OrderedDict()
 _assets_cache_lock = Lock()
 _assets_lookup_slots = asyncio.Semaphore(ASSETS_MAX_CONCURRENT_LOOKUPS)
+_snapshot_schema_ready_sql = text(
+    "SELECT "
+    + " AND ".join(
+        f"to_regclass('public.{table_name}') IS NOT NULL"
+        for table_name in sorted(SNAPSHOT_SERVICE_TABLE_NAMES)
+    )
+)
 
 
 def _resolve_assets_address(address: str) -> str:
@@ -76,9 +84,15 @@ def _release_info() -> dict[str, str]:
     }
 
 
-async def _assert_database_available() -> None:
+async def _assert_database_available(*, require_snapshot_schema: bool = False) -> None:
     async with engine.connect() as conn:
         await conn.execute(text("SELECT 1"))
+        if (
+            require_snapshot_schema
+            and get_settings().snapshot_schema_required
+            and not await conn.scalar(_snapshot_schema_ready_sql)
+        ):
+            raise RuntimeError("snapshot-service schema unavailable")
 
 
 @router.get("/health/live")
@@ -89,7 +103,7 @@ async def health_live():
 @router.get("/health/ready")
 async def health_ready():
     try:
-        await _assert_database_available()
+        await _assert_database_available(require_snapshot_schema=True)
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
