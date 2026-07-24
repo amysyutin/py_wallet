@@ -177,6 +177,26 @@ async def test_new_user_has_no_default_group(client: AsyncClient):
     assert r.json() == []
 
 
+async def test_patch_group_rejects_null_required_fields(
+    client: AsyncClient, auth_headers: dict
+):
+    group = (
+        await client.post(
+            "/wallet-groups",
+            headers=auth_headers,
+            json={"name": "Required"},
+        )
+    ).json()
+
+    for payload in ({"name": None}, {"sort_order": None}):
+        response = await client.patch(
+            f"/wallet-groups/{group['id']}",
+            headers=auth_headers,
+            json=payload,
+        )
+        assert response.status_code == 422
+
+
 async def test_wallets_count_on_group(client: AsyncClient, auth_headers: dict):
     group = (
         await client.post(

@@ -184,6 +184,78 @@ async def test_snapshot_jobs_list_and_get(
     assert body["wallet_id"] == db_wallet.id
 
 
+async def test_snapshot_jobs_filter_auto_job_by_owned_wallet(
+    client: AsyncClient, db_session: AsyncSession
+):
+    h1 = await _register_and_login(client, "job-filter-owner@example.com")
+    h2 = await _register_and_login(client, "job-filter-other@example.com")
+    owner_wallet = (
+        await client.post(
+            "/wallets",
+            headers=h1,
+            json={
+                "label": "Owner wallet",
+                "address": "0x00000000000000000000000000000000000000e1",
+                "chain_type": "mainnet",
+            },
+        )
+    ).json()
+    other_wallet = (
+        await client.post(
+            "/wallets",
+            headers=h2,
+            json={
+                "label": "Other wallet",
+                "address": "0x00000000000000000000000000000000000000e2",
+                "chain_type": "mainnet",
+            },
+        )
+    ).json()
+    owner_db_wallet = await db_session.get(Wallet, owner_wallet["id"])
+    other_db_wallet = await db_session.get(Wallet, other_wallet["id"])
+    assert owner_db_wallet is not None
+    assert other_db_wallet is not None
+
+    manual_run = SnapshotRun(
+        user_id=owner_db_wallet.user_id,
+        wallet_id=owner_wallet["id"],
+        trigger_type="manual",
+        scope_type="wallet",
+        status="success",
+    )
+    auto_run = SnapshotRun(
+        user_id=owner_db_wallet.user_id,
+        wallet_id=owner_wallet["id"],
+        trigger_type="auto",
+        scope_type="wallet",
+        status="pending",
+    )
+    foreign_auto_run = SnapshotRun(
+        user_id=other_db_wallet.user_id,
+        wallet_id=other_wallet["id"],
+        trigger_type="auto",
+        scope_type="wallet",
+        status="pending",
+    )
+    db_session.add_all([manual_run, auto_run, foreign_auto_run])
+    await db_session.flush()
+
+    response = await client.get(
+        f"/snapshot-jobs?wallet_id={owner_wallet['id']}&trigger_type=auto&limit=1",
+        headers=h1,
+    )
+
+    assert response.status_code == 200
+    assert [job["job_id"] for job in response.json()] == [auto_run.id]
+
+    hidden = await client.get(
+        f"/snapshot-jobs?wallet_id={other_wallet['id']}&trigger_type=auto",
+        headers=h1,
+    )
+    assert hidden.status_code == 200
+    assert hidden.json() == []
+
+
 async def test_snapshot_jobs_other_user_404(
     client: AsyncClient, db_session: AsyncSession
 ):

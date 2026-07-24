@@ -123,7 +123,9 @@ def summarize_chain(chain: str, address: str) -> ChainSummary:
         chain,
         status=_rpc_error_type(last_error),
         error_type=_rpc_error_type(last_error),
-        error_message=str(last_error)[:250],
+        # Provider exceptions commonly include the full RPC URL, including API
+        # credentials embedded in its path or query string.
+        error_message="RPC request failed",
     )
 
 

@@ -83,5 +83,5 @@ def validate_init_data(
         last_name=optional_string("last_name", 128),
         username=optional_string("username", 64),
         language_code=optional_string("language_code", 16),
-        allows_write_to_pm=values.get("allows_write_to_pm") == "true",
+        allows_write_to_pm=raw_user.get("allows_write_to_pm") is True,
     )

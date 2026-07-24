@@ -41,13 +41,13 @@ def signed_init_data(
         "username": "alex_wallet",
         "language_code": "ru",
     }
+    if allows_write:
+        user["allows_write_to_pm"] = True
     values = {
         "auth_date": str(auth_date or int(datetime.now(timezone.utc).timestamp())),
         "query_id": "AAHdF6IQAAAAAN0XohDhrOrc",
         "user": json.dumps(user, separators=(",", ":")),
     }
-    if allows_write:
-        values["allows_write_to_pm"] = "true"
     check = "\n".join(f"{key}={values[key]}" for key in sorted(values))
     secret = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
     values["hash"] = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
@@ -207,6 +207,34 @@ def test_configure_webhook_registers_message_updates(monkeypatch):
     ]
 
 
+def test_manual_webhook_setup_uses_derived_secret(monkeypatch):
+    from scripts.configure_telegram_webhook import main
+
+    config = Settings(
+        app_env="test",
+        jwt_secret="ci-test-secret",
+        telegram_bot_token=BOT_TOKEN,
+    )
+    configured = []
+    monkeypatch.setattr(
+        "scripts.configure_telegram_webhook.get_settings", lambda: config
+    )
+    monkeypatch.setattr(
+        TelegramBotClient,
+        "configure_webhook",
+        lambda self, url, secret: configured.append((url, secret)),
+    )
+
+    main()
+
+    assert configured == [
+        (
+            "https://pywallet.dev/api/telegram/webhook",
+            resolve_telegram_webhook_secret(config),
+        )
+    ]
+
+
 @pytest.mark.asyncio
 async def test_telegram_login_is_stable_and_notifications_are_opt_in(
     client, db_session, monkeypatch
@@ -265,6 +293,22 @@ async def test_user_can_opt_in_before_write_access_is_reflected(client, monkeypa
     )
     assert response.status_code == 200
     assert response.json()["enabled"] is True
+    get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_telegram_settings_reject_explicit_null(client, monkeypatch):
+    configure_telegram(monkeypatch)
+    login = await client.post(
+        "/auth/telegram",
+        json={"init_data": signed_init_data(10005)},
+    )
+    response = await client.patch(
+        "/telegram/settings",
+        headers={"Authorization": f"Bearer {login.json()['access_token']}"},
+        json={"enabled": None},
+    )
+    assert response.status_code == 422
     get_settings.cache_clear()
 
 
