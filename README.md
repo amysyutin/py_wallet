@@ -227,6 +227,7 @@ cp .env.example .env
 | `JWT_SECRET` | Staging/Production | Secret used to sign access tokens. Required in staging/production (minimum 32 characters). |
 | `JWT_ALG` | No | JWT algorithm. Only `HS256` is allowed. Defaults to `HS256`. |
 | `ACCESS_TOKEN_TTL_MIN` | No | Access token lifetime in minutes. Defaults to `60`. |
+| `SNAPSHOT_SCHEMA_REQUIRED` | No | Require snapshot-service tables in `/health/ready`; defaults to `true`. Set to `false` only for isolated API smoke environments that do not run snapshot-service. |
 | `EVM1_ADDRESS` | For default `/assets` address | Default EVM wallet address. |
 | `RPC_URL_MAINNET` | For Mainnet aggregation | Comma-separated Ethereum Mainnet RPC URLs. |
 | `RPC_URL_BASE` | For Base aggregation | Comma-separated Base RPC URLs. |

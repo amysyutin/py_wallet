@@ -122,6 +122,7 @@ class Settings(BaseSettings):
     snapshot_service_url: str = "http://localhost:8001"
     snapshot_internal_api_token: str = ""
     snapshot_service_timeout_seconds: float = Field(default=5.0, gt=0)
+    snapshot_schema_required: bool = True
     snapshot_auto_on_wallet_create: bool = True
     snapshot_scheduler_enabled: bool = True
     snapshot_scheduler_interval_seconds: int = Field(default=300, gt=0)

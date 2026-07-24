@@ -20,6 +20,7 @@ services:
       APP_ENV: test
       DATABASE_URL: postgresql+asyncpg://wallet:wallet@postgres:5432/wallet
       JWT_SECRET: ci-test-secret
+      SNAPSHOT_SCHEMA_REQUIRED: "false"
     ports:
       - "8000:8000"
     depends_on:
