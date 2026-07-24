@@ -8,6 +8,19 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
+SNAPSHOT_SERVICE_TABLE_NAMES = frozenset(
+    {
+        "snapshot_runs",
+        "wallet_snapshots",
+        "chain_snapshots",
+        "snapshot_balance_snapshots",
+    }
+)
+SNAPSHOT_SERVICE_ALEMBIC_VERSION_TABLE = "snapshot_service_alembic_version"
+SNAPSHOT_SERVICE_OWNED_TABLE_NAMES = SNAPSHOT_SERVICE_TABLE_NAMES | {
+    SNAPSHOT_SERVICE_ALEMBIC_VERSION_TABLE
+}
+
 
 class SnapshotRun(Base):
     __tablename__ = "snapshot_runs"
@@ -20,6 +33,7 @@ class SnapshotRun(Base):
     wallet_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("wallets.id", ondelete="SET NULL"), nullable=True
     )
+    group_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
     trigger_type: Mapped[str] = mapped_column(String(32), nullable=False)
     scope_type: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)

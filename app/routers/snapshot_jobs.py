@@ -14,7 +14,7 @@ def _to_detail(run: SnapshotRun) -> SnapshotJobDetail:
         status=run.status,
         scope_type=run.scope_type,
         wallet_id=run.wallet_id,
-        group_id=None,
+        group_id=run.group_id,
         trigger_type=run.trigger_type,
         created_at=run.created_at,
         finished_at=run.finished_at,

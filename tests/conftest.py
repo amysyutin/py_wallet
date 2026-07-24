@@ -25,6 +25,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -34,6 +35,8 @@ from app.core.config import get_settings
 from app.db.base import Base
 from app.db.models.snapshot_service import (
     ChainSnapshot,
+    SNAPSHOT_SERVICE_ALEMBIC_VERSION_TABLE,
+    SNAPSHOT_SERVICE_TABLE_NAMES,
     SnapshotBalanceSnapshot,
     SnapshotRun,
     WalletSnapshot,
@@ -43,6 +46,15 @@ from app.main import app
 from app.services.admin_promote import PromoteAdminStatus, promote_admin_by_email
 
 test_engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
+snapshot_read_model_tables = [
+    SnapshotRun.__table__,
+    WalletSnapshot.__table__,
+    ChainSnapshot.__table__,
+    SnapshotBalanceSnapshot.__table__,
+]
+assert {table.name for table in snapshot_read_model_tables} == set(
+    SNAPSHOT_SERVICE_TABLE_NAMES
+)
 
 
 def pytest_configure(config):
@@ -63,27 +75,48 @@ def setup_test_db():
 
     original_health_engine = app_routes.engine
     app_routes.engine = test_engine
-    alembic_config = Config("alembic.ini")
-    command.downgrade(alembic_config, "base")
-    command.upgrade(alembic_config, "head")
 
-    async def _create_snapshot_read_models() -> None:
+    async def _reset_snapshot_read_models(*, create: bool) -> None:
         async with test_engine.begin() as connection:
-            await connection.run_sync(
-                lambda sync_connection: Base.metadata.create_all(
-                    sync_connection,
-                    tables=[
-                        SnapshotRun.__table__,
-                        WalletSnapshot.__table__,
-                        ChainSnapshot.__table__,
-                        SnapshotBalanceSnapshot.__table__,
-                    ],
+            if create:
+                await connection.run_sync(
+                    lambda sync_connection: Base.metadata.create_all(
+                        sync_connection,
+                        tables=snapshot_read_model_tables,
+                    )
                 )
-            )
+                await connection.execute(
+                    text(
+                        "CREATE TABLE IF NOT EXISTS "
+                        f'"{SNAPSHOT_SERVICE_ALEMBIC_VERSION_TABLE}" '
+                        "(version_num VARCHAR(32) PRIMARY KEY)"
+                    )
+                )
+            else:
+                await connection.run_sync(
+                    lambda sync_connection: Base.metadata.drop_all(
+                        sync_connection,
+                        tables=snapshot_read_model_tables,
+                    )
+                )
+                await connection.execute(
+                    text(
+                        f'DROP TABLE IF EXISTS "{SNAPSHOT_SERVICE_ALEMBIC_VERSION_TABLE}"'
+                    )
+                )
 
-    asyncio.run(_create_snapshot_read_models())
-    yield
-    app_routes.engine = original_health_engine
+    try:
+        # Snapshot-service owns these tables outside this Alembic chain. Remove
+        # test-only copies before API downgrades so repeated runs stay safe.
+        asyncio.run(_reset_snapshot_read_models(create=False))
+        alembic_config = Config("alembic.ini")
+        command.downgrade(alembic_config, "base")
+        command.upgrade(alembic_config, "head")
+        asyncio.run(_reset_snapshot_read_models(create=True))
+        yield
+    finally:
+        asyncio.run(_reset_snapshot_read_models(create=False))
+        app_routes.engine = original_health_engine
 
 
 @pytest.fixture

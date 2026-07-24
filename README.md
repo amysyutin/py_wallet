@@ -431,6 +431,13 @@ TEST_DATABASE_URL=postgresql+asyncpg://wallet:wallet@localhost:5432/wallet_test 
 The test suite is designed to run without external network calls or real
 secrets. External APIs are mocked in tests.
 
+The API and snapshot-service intentionally share one PostgreSQL database but
+use separate Alembic version tables. Before the API becomes ready,
+snapshot-service must apply its own migrations so that `snapshot_runs`,
+`wallet_snapshots`, `chain_snapshots`, and `snapshot_balance_snapshots` exist.
+The production manifests enforce this with the snapshot-service PreSync
+migration job; `/health/ready` verifies the resulting read-model schema.
+
 ### Test Markers
 
 - `slow` marks tests that may call real APIs or take longer to run.

@@ -60,6 +60,9 @@ jobs:
       - name: Run database migrations
         run: alembic upgrade head
 
+      - name: Validate API migration drift
+        run: alembic check
+
       - name: Lint
         run: ruff check .
 
