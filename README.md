@@ -90,7 +90,9 @@ Authenticated endpoints require `Authorization: Bearer <token>`:
 | `POST` | `/wallets` | Add a wallet (`wallet_type`: `evm` or `manual`; EVM requires `address` + supported `chain_type`; manual requires `chain_type=manual`, no address). |
 | `GET` | `/wallets` | List active wallets (`?active_only=false` for all). |
 | `GET` | `/wallets/{id}` | Get a wallet by ID. |
-| `GET` | `/wallets/{id}/assets` | Live EVM portfolio for the wallet address across all supported chains (`total_usd`, per-chain breakdown). |
+| `GET` | `/wallets/{id}/assets` | Latest persisted EVM portfolio, with a guarded live fallback when no current snapshot exists. |
+| `GET` | `/wallets/{id}/snapshots` | List recent persisted snapshots for one wallet. |
+| `POST` | `/wallets/{id}/snapshots` | Request an explicit snapshot refresh for one active wallet. |
 | `PATCH` | `/wallets/{id}` | Update wallet fields (`label`, `group_id`, `is_active`, `notes`; EVM wallets also `chain_type` and `address`). |
 | `DELETE` | `/wallets/{id}` | Soft-delete a wallet (`is_active=false`). |
 | `GET` | `/wallets/{id}/balances` | List manual balances for a wallet (`total_usd`, per-asset `value_usd`). |
@@ -144,18 +146,18 @@ For existing EVM wallets, `PATCH /wallets/{id}` accepts `chain_type` and
 `address` (together or separately). `wallet_type` cannot be changed after
 creation; manual wallets cannot switch to an on-chain network.
 
-`GET /wallets/{id}/assets` returns the live USD total and per-chain breakdown
-for the wallet address across all EVM networks (`mainnet`, `base`, `bnb`,
-`arbitrum`, `linea`). The wallet record still stores one `chain_type` (the
-network selected in the UI); the assets endpoint aggregates the same address
-on every supported chain. Response shape matches public `GET /assets`.
+`GET /wallets/{id}/assets` returns the latest readable snapshot for the current
+wallet state. If no snapshot exists after the wallet's most recent update, it
+falls back to the same cached and capacity-limited live lookup used by public
+`GET /assets`. The response keeps the same USD total and per-chain shape.
+Use `POST /wallets/{id}/snapshots` to request an explicit refresh.
 
 `POST /snapshot` uses the same multi-chain EVM scope for stored history, so
 `GET /portfolio?wallet_id=<id>&days=30` can power a chart of the wallet's
 total USD value across all EVM networks over time.
 
 ```bash
-# Live total across all EVM chains for a wallet
+# Latest total across all EVM chains for a wallet
 curl http://localhost:8000/wallets/1/assets \
   -H "Authorization: Bearer $TOKEN"
 

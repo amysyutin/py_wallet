@@ -235,6 +235,40 @@ def test_assets_caches_same_address(mock_summarize):
     mock_summarize.assert_called_once_with(ADDRESS_A)
 
 
+async def test_assets_single_flight_deduplicates_concurrent_same_address(
+    monkeypatch,
+):
+    started = asyncio.Event()
+    release = asyncio.Event()
+    calls = 0
+
+    async def fake_run_in_threadpool(_function, address):
+        nonlocal calls
+        calls += 1
+        assert address == ADDRESS_A
+        started.set()
+        await release.wait()
+        return SimpleNamespace(
+            model_dump=lambda: {
+                "address": ADDRESS_A,
+                "chains": [],
+                "total_usd": 100.0,
+            }
+        )
+
+    monkeypatch.setattr(app_routes, "run_in_threadpool", fake_run_in_threadpool)
+    first = asyncio.create_task(app_routes.lookup_live_assets(ADDRESS_A))
+    await started.wait()
+    second = asyncio.create_task(app_routes.lookup_live_assets(ADDRESS_A))
+    await asyncio.sleep(0)
+    release.set()
+
+    first_result, second_result = await asyncio.gather(first, second)
+
+    assert first_result == second_result
+    assert calls == 1
+
+
 @patch("app.routes.summarize_all")
 def test_assets_cache_expires(mock_summarize, monkeypatch):
     now = 100.0
