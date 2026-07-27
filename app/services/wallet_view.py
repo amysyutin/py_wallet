@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.config import CHAIN_RPC, NATIVE_SYMBOL
 from app.db.models.asset import Asset
 from app.db.models.balance_snapshot import BalanceSnapshot
 from app.db.models.manual_balance import ManualBalance
@@ -22,6 +23,7 @@ from app.db.models.snapshot_service import (
 from app.db.models.wallet import Wallet
 from app.db.models.wallet_group import WalletGroup
 from app.metrics import observe_wallet_balance
+from app.models import ChainSummary, PortfolioSummary, TokenBalance
 from app.schemas.wallet import (
     WalletAssetDetail,
     WalletDetailSummary,
@@ -273,6 +275,116 @@ def _detail_assets_from_items(
             items, key=lambda item: item[3], reverse=True
         )
     ]
+
+
+def _chain_summary_from_snapshot_items(
+    *,
+    chain: str,
+    status: str,
+    error_type: str | None,
+    error_message: str | None,
+    items: list[tuple[str, Decimal, Decimal]],
+) -> ChainSummary:
+    native_symbol = NATIVE_SYMBOL.get(chain, "NATIVE")
+    native_amount = Decimal("0")
+    usdt_amount = Decimal("0")
+    usdc_amount = Decimal("0")
+    token_totals: dict[str, tuple[Decimal, Decimal]] = {}
+
+    for symbol, amount, value_usd in items:
+        if symbol == native_symbol:
+            native_amount += amount
+        elif symbol == "USDT":
+            usdt_amount += amount
+        elif symbol == "USDC":
+            usdc_amount += amount
+        else:
+            token_amount, token_usd = token_totals.get(
+                symbol, (Decimal("0"), Decimal("0"))
+            )
+            token_totals[symbol] = (
+                token_amount + amount,
+                token_usd + value_usd,
+            )
+
+    return ChainSummary(
+        chain=chain,
+        native_symbol=native_symbol,
+        native_amount=float(native_amount),
+        usdt_amount=float(usdt_amount),
+        usdc_amount=float(usdc_amount),
+        tokens=[
+            TokenBalance(symbol=symbol, amount=float(amount), usd=float(value_usd))
+            for symbol, (amount, value_usd) in sorted(token_totals.items())
+        ],
+        status=status,
+        error_type=error_type,
+        error_message=error_message,
+    )
+
+
+def _chain_sort_key(summary: ChainSummary) -> tuple[int, str]:
+    configured_order = {chain: index for index, chain in enumerate(CHAIN_RPC)}
+    return configured_order.get(summary.chain, len(configured_order)), summary.chain
+
+
+async def build_latest_wallet_assets_summary(
+    session: AsyncSession,
+    wallet: Wallet,
+    *,
+    address: str,
+) -> PortfolioSummary | None:
+    """Build the existing assets response from the current address revision."""
+    snapshot_at = func.coalesce(SnapshotRun.finished_at, SnapshotRun.created_at)
+    wallet_snapshot = await session.scalar(
+        select(WalletSnapshot)
+        .join(SnapshotRun, SnapshotRun.id == WalletSnapshot.snapshot_run_id)
+        .options(
+            selectinload(WalletSnapshot.chain_snapshots).selectinload(
+                ChainSnapshot.balance_snapshots
+            )
+        )
+        .where(
+            WalletSnapshot.wallet_id == wallet.id,
+            WalletSnapshot.status.in_(SNAPSHOT_READ_STATUSES),
+            SnapshotRun.created_at >= wallet.address_updated_at,
+        )
+        .order_by(snapshot_at.desc(), WalletSnapshot.id.desc())
+        .limit(1)
+    )
+    if wallet_snapshot is not None:
+        chains = []
+        for chain_snapshot in wallet_snapshot.chain_snapshots:
+            items = [
+                (
+                    balance.asset_symbol,
+                    balance.amount,
+                    balance.value_usd,
+                )
+                for balance in chain_snapshot.balance_snapshots
+            ]
+            chains.append(
+                _chain_summary_from_snapshot_items(
+                    chain=chain_snapshot.chain,
+                    status=chain_snapshot.status,
+                    error_type=chain_snapshot.error_type,
+                    # Persisted provider errors are not part of the public
+                    # contract and may contain endpoint or credential details.
+                    error_message=(
+                        "Snapshot collection failed"
+                        if chain_snapshot.error_message
+                        else None
+                    ),
+                    items=items,
+                )
+            )
+        chains.sort(key=_chain_sort_key)
+        return PortfolioSummary(
+            address=address,
+            chains=chains,
+            total_usd=float(wallet_snapshot.total_usd),
+        )
+    return None
 
 
 async def build_wallet_balance_info(

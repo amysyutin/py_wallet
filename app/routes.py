@@ -26,6 +26,8 @@ _EVM_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 _assets_cache: OrderedDict[str, tuple[float, dict]] = OrderedDict()
 _assets_cache_lock = Lock()
 _assets_lookup_slots = asyncio.Semaphore(ASSETS_MAX_CONCURRENT_LOOKUPS)
+_assets_inflight: dict[tuple[int, str], asyncio.Task[dict]] = {}
+_assets_inflight_lock = Lock()
 _snapshot_schema_ready_sql = text(
     "SELECT "
     + " AND ".join(
@@ -35,7 +37,7 @@ _snapshot_schema_ready_sql = text(
 )
 
 
-def _resolve_assets_address(address: str) -> str:
+def resolve_assets_address(address: str) -> str:
     resolved = (address or ADDRESS_EVM).strip()
     if not resolved:
         raise HTTPException(
@@ -74,6 +76,18 @@ def _cache_assets(cache_key: str, payload: dict) -> None:
 def _clear_assets_cache() -> None:
     with _assets_cache_lock:
         _assets_cache.clear()
+
+
+def _finish_assets_lookup(
+    inflight_key: tuple[int, str],
+    task: asyncio.Task[dict],
+) -> None:
+    with _assets_inflight_lock:
+        if _assets_inflight.get(inflight_key) is task:
+            _assets_inflight.pop(inflight_key, None)
+    if not task.cancelled():
+        # Mark errors as retrieved even if every waiting request was cancelled.
+        task.exception()
 
 
 def _release_info() -> dict[str, str]:
@@ -124,14 +138,7 @@ async def health():
     return {"status": "healthy", **_release_info()}
 
 
-@router.get("/assets")
-async def get_assets(address: str = ""):
-    resolved = _resolve_assets_address(address)
-    cache_key = resolved.lower()
-    cached = _get_cached_assets(cache_key)
-    if cached is not None:
-        return cached
-
+async def _run_live_assets_lookup(resolved: str, cache_key: str) -> dict:
     try:
         async with asyncio.timeout(ASSETS_QUEUE_TIMEOUT_SECONDS):
             await _assets_lookup_slots.acquire()
@@ -152,3 +159,29 @@ async def get_assets(address: str = ""):
         return payload
     finally:
         _assets_lookup_slots.release()
+
+
+async def lookup_live_assets(address: str = "") -> dict:
+    """Return a cached, capacity-limited and single-flight live lookup."""
+    resolved = resolve_assets_address(address)
+    cache_key = resolved.lower()
+    cached = _get_cached_assets(cache_key)
+    if cached is not None:
+        return cached
+
+    loop = asyncio.get_running_loop()
+    inflight_key = (id(loop), cache_key)
+    with _assets_inflight_lock:
+        task = _assets_inflight.get(inflight_key)
+        if task is None:
+            task = loop.create_task(_run_live_assets_lookup(resolved, cache_key))
+            _assets_inflight[inflight_key] = task
+            task.add_done_callback(
+                lambda completed: _finish_assets_lookup(inflight_key, completed)
+            )
+    return await asyncio.shield(task)
+
+
+@router.get("/assets")
+async def get_assets(address: str = ""):
+    return await lookup_live_assets(address)

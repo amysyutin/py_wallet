@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from fastapi.concurrency import run_in_threadpool
@@ -23,14 +24,15 @@ from app.schemas.wallet import (
     WalletUpdate,
     validate_wallet_network_state,
 )
+from app.routes import lookup_live_assets, resolve_assets_address
 from app.services.manual_balance import (
     delete_manual_balance,
     get_manual_balances,
     upsert_manual_balances,
 )
-from app.services.portfolio import summarize_all
 from app.services.snapshot_jobs import SnapshotServiceError, create_snapshot_job
 from app.services.wallet_view import (
+    build_latest_wallet_assets_summary,
     build_wallet_detail_summary,
     build_wallet_summaries,
     list_wallet_snapshots,
@@ -309,6 +311,11 @@ async def update_wallet(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Wallet not found")
 
     updates = payload.model_dump(exclude_unset=True)
+    address_changed = (
+        "address" in updates
+        and (updates["address"] or "").strip().lower()
+        != (wallet.address or "").strip().lower()
+    )
     if "group_id" in updates:
         await _validate_group_id(session, current_user.id, updates["group_id"])
 
@@ -336,6 +343,8 @@ async def update_wallet(
 
     for field, value in updates.items():
         setattr(wallet, field, value)
+    if address_changed:
+        wallet.address_updated_at = datetime.now(timezone.utc)
 
     try:
         await session.commit()
@@ -422,7 +431,15 @@ async def get_wallet_assets(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Wallet has no address",
         )
-    return await run_in_threadpool(summarize_all, wallet.address)
+    resolved_address = resolve_assets_address(wallet.address)
+    persisted = await build_latest_wallet_assets_summary(
+        session,
+        wallet,
+        address=resolved_address,
+    )
+    if persisted is not None:
+        return persisted
+    return PortfolioSummary.model_validate(await lookup_live_assets(resolved_address))
 
 
 @router.get("/{wallet_id}/balances", response_model=ManualBalancesRead)

@@ -1,6 +1,6 @@
 """Tests for extended wallet CRUD and migration backfill behavior."""
 
-from unittest.mock import ANY, Mock, call, patch
+from unittest.mock import ANY, AsyncMock, Mock, call, patch
 
 from httpx import AsyncClient
 from sqlalchemy import select, text
@@ -439,9 +439,9 @@ async def test_patch_forbidden_fields_rejected(client: AsyncClient, auth_headers
     assert r.status_code == 422
 
 
-@patch("app.routers.wallets.summarize_all")
+@patch("app.routers.wallets.lookup_live_assets", new_callable=AsyncMock)
 async def test_get_wallet_assets_evm(
-    mock_summarize, client: AsyncClient, auth_headers: dict
+    mock_live_assets, client: AsyncClient, auth_headers: dict
 ):
     wallet = (
         await client.post(
@@ -454,7 +454,7 @@ async def test_get_wallet_assets_evm(
             },
         )
     ).json()
-    mock_summarize.return_value = PortfolioSummary(
+    mock_live_assets.return_value = PortfolioSummary(
         address=wallet["address"],
         chains=[],
         total_usd=12345.67,
@@ -465,7 +465,295 @@ async def test_get_wallet_assets_evm(
     data = r.json()
     assert data["address"] == wallet["address"]
     assert data["total_usd"] == 12345.67
-    mock_summarize.assert_called_once_with(wallet["address"])
+    mock_live_assets.assert_awaited_once_with(wallet["address"])
+
+
+@patch("app.routers.wallets.lookup_live_assets", new_callable=AsyncMock)
+async def test_get_wallet_assets_prefers_latest_readable_snapshot(
+    mock_live_assets,
+    client: AsyncClient,
+    auth_headers: dict,
+    db_session: AsyncSession,
+):
+    from datetime import timedelta
+    from decimal import Decimal
+
+    from app.db.models.snapshot_service import (
+        ChainSnapshot,
+        SnapshotBalanceSnapshot,
+        SnapshotRun,
+        WalletSnapshot,
+    )
+
+    wallet = (
+        await client.post(
+            "/wallets",
+            headers=auth_headers,
+            json={
+                "label": "Persisted assets",
+                "address": "0x00000000000000000000000000000000000000b1",
+                "chain_type": "mainnet",
+            },
+        )
+    ).json()
+    db_wallet = await db_session.get(Wallet, wallet["id"])
+    assert db_wallet is not None
+    snapshot_at = db_wallet.address_updated_at + timedelta(seconds=1)
+
+    readable_run = SnapshotRun(
+        user_id=db_wallet.user_id,
+        wallet_id=db_wallet.id,
+        trigger_type="manual",
+        scope_type="wallet",
+        status="partial_success",
+        created_at=snapshot_at,
+        finished_at=snapshot_at,
+    )
+    db_session.add(readable_run)
+    await db_session.flush()
+    readable_snapshot = WalletSnapshot(
+        snapshot_run_id=readable_run.id,
+        wallet_id=db_wallet.id,
+        wallet_type="evm",
+        status="partial_success",
+        total_usd=Decimal("83"),
+    )
+    db_session.add(readable_snapshot)
+    await db_session.flush()
+    mainnet = ChainSnapshot(
+        wallet_snapshot_id=readable_snapshot.id,
+        chain="mainnet",
+        status="success",
+        total_usd=Decimal("83"),
+    )
+    base = ChainSnapshot(
+        wallet_snapshot_id=readable_snapshot.id,
+        chain="base",
+        status="failed",
+        total_usd=Decimal("0"),
+        error_type="rpc_error",
+        error_message="RPC request failed",
+    )
+    db_session.add_all([mainnet, base])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            SnapshotBalanceSnapshot(
+                chain_snapshot_id=mainnet.id,
+                asset_symbol="ETH",
+                amount=Decimal("0.5"),
+                price_usd=Decimal("150"),
+                value_usd=Decimal("75"),
+                price_source="test",
+            ),
+            SnapshotBalanceSnapshot(
+                chain_snapshot_id=mainnet.id,
+                asset_symbol="USDC",
+                amount=Decimal("5"),
+                price_usd=Decimal("1"),
+                value_usd=Decimal("5"),
+                price_source="test",
+            ),
+            SnapshotBalanceSnapshot(
+                chain_snapshot_id=mainnet.id,
+                asset_symbol="LINK",
+                amount=Decimal("1"),
+                price_usd=Decimal("3"),
+                value_usd=Decimal("3"),
+                price_source="test",
+            ),
+        ]
+    )
+
+    failed_run = SnapshotRun(
+        user_id=db_wallet.user_id,
+        wallet_id=db_wallet.id,
+        trigger_type="manual",
+        scope_type="wallet",
+        status="failed",
+        finished_at=snapshot_at + timedelta(seconds=1),
+    )
+    db_session.add(failed_run)
+    await db_session.flush()
+    db_session.add(
+        WalletSnapshot(
+            snapshot_run_id=failed_run.id,
+            wallet_id=db_wallet.id,
+            wallet_type="evm",
+            status="failed",
+            total_usd=Decimal("999"),
+        )
+    )
+    await db_session.flush()
+
+    response = await client.get(
+        f"/wallets/{wallet['id']}/assets",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["address"] == wallet["address"]
+    assert data["total_usd"] == 83.0
+    assert [chain["chain"] for chain in data["chains"]] == ["mainnet", "base"]
+    assert data["chains"][0]["native_amount"] == 0.5
+    assert data["chains"][0]["usdc_amount"] == 5.0
+    assert data["chains"][0]["tokens"] == [
+        {"symbol": "LINK", "amount": 1.0, "usd": 3.0}
+    ]
+    assert data["chains"][1]["status"] == "failed"
+    assert data["chains"][1]["error_type"] == "rpc_error"
+    assert data["chains"][1]["error_message"] == "Snapshot collection failed"
+    mock_live_assets.assert_not_awaited()
+
+
+@patch("app.routers.wallets.lookup_live_assets", new_callable=AsyncMock)
+async def test_get_wallet_assets_ignores_snapshot_before_wallet_update(
+    mock_live_assets,
+    client: AsyncClient,
+    auth_headers: dict,
+    db_session: AsyncSession,
+):
+    from datetime import timedelta
+    from decimal import Decimal
+
+    from app.db.models.snapshot_service import SnapshotRun, WalletSnapshot
+
+    wallet = (
+        await client.post(
+            "/wallets",
+            headers=auth_headers,
+            json={
+                "label": "Changed address",
+                "address": "0x00000000000000000000000000000000000000b2",
+                "chain_type": "mainnet",
+            },
+        )
+    ).json()
+    db_wallet = await db_session.get(Wallet, wallet["id"])
+    assert db_wallet is not None
+    run_started_at = db_wallet.address_updated_at + timedelta(seconds=1)
+    address_changed_at = run_started_at + timedelta(seconds=1)
+    run = SnapshotRun(
+        user_id=db_wallet.user_id,
+        wallet_id=db_wallet.id,
+        trigger_type="manual",
+        scope_type="wallet",
+        status="success",
+        created_at=run_started_at,
+        finished_at=address_changed_at + timedelta(seconds=1),
+    )
+    db_session.add(run)
+    await db_session.flush()
+    db_session.add(
+        WalletSnapshot(
+            snapshot_run_id=run.id,
+            wallet_id=db_wallet.id,
+            wallet_type="evm",
+            status="success",
+            total_usd=Decimal("50"),
+        )
+    )
+    await db_session.flush()
+
+    new_address = "0x00000000000000000000000000000000000000b3"
+    db_wallet.address = new_address
+    db_wallet.address_updated_at = address_changed_at
+    db_wallet.updated_at = address_changed_at
+    await db_session.flush()
+    mock_live_assets.return_value = PortfolioSummary(
+        address=new_address,
+        chains=[],
+        total_usd=10,
+    )
+
+    response = await client.get(
+        f"/wallets/{wallet['id']}/assets",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["address"] == new_address
+    assert response.json()["total_usd"] == 10.0
+    mock_live_assets.assert_awaited_once_with(new_address)
+
+
+@patch("app.routers.wallets.lookup_live_assets", new_callable=AsyncMock)
+async def test_get_wallet_assets_keeps_zero_snapshot_after_metadata_update(
+    mock_live_assets,
+    client: AsyncClient,
+    auth_headers: dict,
+    db_session: AsyncSession,
+):
+    from datetime import timedelta
+    from decimal import Decimal
+
+    from app.db.models.snapshot_service import (
+        ChainSnapshot,
+        SnapshotRun,
+        WalletSnapshot,
+    )
+
+    wallet = (
+        await client.post(
+            "/wallets",
+            headers=auth_headers,
+            json={
+                "label": "Empty snapshot",
+                "address": "0x00000000000000000000000000000000000000b4",
+                "chain_type": "mainnet",
+            },
+        )
+    ).json()
+    db_wallet = await db_session.get(Wallet, wallet["id"])
+    assert db_wallet is not None
+    snapshot_at = db_wallet.address_updated_at + timedelta(seconds=1)
+    run = SnapshotRun(
+        user_id=db_wallet.user_id,
+        wallet_id=db_wallet.id,
+        trigger_type="manual",
+        scope_type="wallet",
+        status="success",
+        created_at=snapshot_at,
+        finished_at=snapshot_at,
+    )
+    db_session.add(run)
+    await db_session.flush()
+    snapshot = WalletSnapshot(
+        snapshot_run_id=run.id,
+        wallet_id=db_wallet.id,
+        wallet_type="evm",
+        status="success",
+        total_usd=Decimal("0"),
+    )
+    db_session.add(snapshot)
+    await db_session.flush()
+    db_session.add(
+        ChainSnapshot(
+            wallet_snapshot_id=snapshot.id,
+            chain="mainnet",
+            status="success",
+            total_usd=Decimal("0"),
+        )
+    )
+    await db_session.flush()
+
+    metadata_update = await client.patch(
+        f"/wallets/{wallet['id']}",
+        headers=auth_headers,
+        json={"label": "Renamed empty snapshot", "notes": "metadata only"},
+    )
+    assert metadata_update.status_code == 200
+
+    response = await client.get(
+        f"/wallets/{wallet['id']}/assets",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["total_usd"] == 0.0
+    assert response.json()["chains"][0]["native_amount"] == 0.0
+    mock_live_assets.assert_not_awaited()
 
 
 async def test_get_wallet_assets_manual_wallet_400(
