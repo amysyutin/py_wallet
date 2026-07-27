@@ -9,8 +9,9 @@ from app.core.config import get_settings
 from app.log import get_logger
 from app.db.models.wallet import Wallet
 from app.db.models.wallet_group import WalletGroup
-from app.deps import CurrentUser, SessionDep
+from app.deps import ClientChannel, ClientChannelValue, CurrentUser, SessionDep
 from app.models import PortfolioSummary
+from app.metrics import FIRST_WALLET_ADDED
 from app.schemas.manual_balance import ManualBalancesPut, ManualBalancesRead
 from app.schemas.snapshot import SnapshotJobRead
 from app.schemas.wallet import (
@@ -52,7 +53,12 @@ def _is_active_evm_duplicate(exc: IntegrityError) -> bool:
     return False
 
 
-async def _trigger_wallet_snapshot_background(*, user_id: int, wallet_id: int) -> None:
+async def _trigger_wallet_snapshot_background(
+    *,
+    user_id: int,
+    wallet_id: int,
+    activation_channel: ClientChannelValue | None,
+) -> None:
     settings = get_settings()
     try:
         await run_in_threadpool(
@@ -62,6 +68,7 @@ async def _trigger_wallet_snapshot_background(*, user_id: int, wallet_id: int) -
             scope_type="wallet",
             wallet_id=wallet_id,
             trigger_type="auto",
+            activation_channel=activation_channel,
         )
     except SnapshotServiceError:
         # Wallet creation must not fail due to snapshot service issues.
@@ -142,7 +149,17 @@ async def create_wallet(
     payload: WalletCreate,
     current_user: CurrentUser,
     session: SessionDep,
+    client_channel: ClientChannel,
 ) -> Wallet:
+    # Serialize creates for one owner so two concurrent first-wallet requests
+    # cannot both emit the activation event.
+    await session.execute(select(func.pg_advisory_xact_lock(0x505957, current_user.id)))
+    has_wallet = (
+        await session.scalar(
+            select(Wallet.id).where(Wallet.user_id == current_user.id).limit(1)
+        )
+        is not None
+    )
     await _validate_group_id(session, current_user.id, payload.group_id)
     if payload.wallet_type == "evm":
         await _ensure_unique_active_evm_address(
@@ -172,6 +189,11 @@ async def create_wallet(
             detail="An active wallet with this EVM address already exists",
         ) from None
     await session.refresh(wallet)
+    if not has_wallet:
+        FIRST_WALLET_ADDED.labels(
+            channel=client_channel,
+            wallet_type=wallet.wallet_type,
+        ).inc()
 
     settings = get_settings()
     if settings.snapshot_auto_on_wallet_create and wallet.is_active:
@@ -179,6 +201,7 @@ async def create_wallet(
             _trigger_wallet_snapshot_background(
                 user_id=current_user.id,
                 wallet_id=wallet.id,
+                activation_channel=client_channel if not has_wallet else None,
             )
         )
     return wallet

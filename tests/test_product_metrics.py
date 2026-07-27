@@ -6,6 +6,8 @@ import requests
 
 from app.core.config import Settings
 from app.metrics import (
+    FIRST_WALLET_ADDED,
+    REGISTRATION_COMPLETED,
     SNAPSHOT_JOB_CREATE,
     SNAPSHOT_SERVICE_CLIENT_REQUESTS,
     WALLET_BALANCE_SOURCE,
@@ -61,6 +63,32 @@ def test_snapshot_client_success_metrics(mock_post: Mock) -> None:
     assert _counter_value(SNAPSHOT_JOB_CREATE, **job_labels) == job_before + 1
 
 
+@patch("app.services.snapshot_jobs.requests.post")
+def test_snapshot_client_forwards_only_bounded_activation_channel(
+    mock_post: Mock,
+) -> None:
+    response = Mock(status_code=202)
+    response.json.return_value = {"job_id": 43, "status": "pending"}
+    mock_post.return_value = response
+
+    create_snapshot_job(
+        _settings(),
+        user_id=7,
+        scope_type="wallet",
+        wallet_id=9,
+        trigger_type="auto",
+        activation_channel="telegram",
+    )
+
+    assert mock_post.call_args.kwargs["json"] == {
+        "user_id": 7,
+        "trigger_type": "auto",
+        "scope_type": "wallet",
+        "wallet_id": 9,
+        "activation_channel": "telegram",
+    }
+
+
 @patch("app.services.snapshot_jobs.requests.post", side_effect=requests.Timeout())
 def test_snapshot_client_timeout_metrics(_mock_post: Mock) -> None:
     client_labels = {
@@ -98,3 +126,109 @@ def test_wallet_balance_source_and_freshness_metrics() -> None:
         _histogram_count(WALLET_SNAPSHOT_FRESHNESS, **source_labels)
         == freshness_before + 1
     )
+
+
+async def test_first_wallet_metric_uses_bounded_channel_and_counts_once(
+    client, auth_headers: dict[str, str]
+) -> None:
+    telegram_evm = {"channel": "telegram", "wallet_type": "evm"}
+    web_manual = {"channel": "web", "wallet_type": "manual"}
+    telegram_before = _counter_value(FIRST_WALLET_ADDED, **telegram_evm)
+    web_before = _counter_value(FIRST_WALLET_ADDED, **web_manual)
+
+    first = await client.post(
+        "/wallets",
+        headers={**auth_headers, "X-Client-Channel": "telegram"},
+        json={
+            "label": "First",
+            "address": "0x00000000000000000000000000000000000000f1",
+            "chain_type": "mainnet",
+        },
+    )
+    second = await client.post(
+        "/wallets",
+        headers={**auth_headers, "X-Client-Channel": "web"},
+        json={
+            "label": "Second",
+            "wallet_type": "manual",
+            "chain_type": "manual",
+        },
+    )
+    await client.post(
+        "/auth/register",
+        json={"email": "metric-fallback@example.com", "password": "password12"},
+    )
+    login = await client.post(
+        "/auth/login",
+        json={"email": "metric-fallback@example.com", "password": "password12"},
+    )
+    fallback_first = await client.post(
+        "/wallets",
+        headers={
+            "Authorization": f"Bearer {login.json()['access_token']}",
+            "X-Client-Channel": "unexpected",
+        },
+        json={
+            "label": "Fallback",
+            "wallet_type": "manual",
+            "chain_type": "manual",
+        },
+    )
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert fallback_first.status_code == 201
+    assert _counter_value(FIRST_WALLET_ADDED, **telegram_evm) == telegram_before + 1
+    assert _counter_value(FIRST_WALLET_ADDED, **web_manual) == web_before + 1
+
+    metrics = await client.get("/metrics")
+    assert metrics.status_code == 200
+    assert (
+        'py_wallet_first_wallet_added_total{channel="telegram",wallet_type="evm"}'
+        in metrics.text
+    )
+    assert 'channel="unexpected"' not in metrics.text
+    assert "0x00000000000000000000000000000000000000f1" not in metrics.text
+
+
+async def test_email_registration_metric_counts_commits_with_bounded_channel(
+    client,
+) -> None:
+    web_labels = {"channel": "web"}
+    telegram_labels = {"channel": "telegram"}
+    web_before = _counter_value(REGISTRATION_COMPLETED, **web_labels)
+    telegram_before = _counter_value(REGISTRATION_COMPLETED, **telegram_labels)
+    payload = {"email": "registration-metric@example.com", "password": "password12"}
+
+    created = await client.post(
+        "/auth/register",
+        headers={"X-Client-Channel": "telegram"},
+        json=payload,
+    )
+    duplicate = await client.post(
+        "/auth/register",
+        headers={"X-Client-Channel": "telegram"},
+        json=payload,
+    )
+    fallback = await client.post(
+        "/auth/register",
+        headers={"X-Client-Channel": "unbounded-client-value"},
+        json={
+            "email": "registration-metric-fallback@example.com",
+            "password": "password12",
+        },
+    )
+
+    assert created.status_code == 201
+    assert duplicate.status_code == 409
+    assert fallback.status_code == 201
+    assert (
+        _counter_value(REGISTRATION_COMPLETED, **telegram_labels) == telegram_before + 1
+    )
+    assert _counter_value(REGISTRATION_COMPLETED, **web_labels) == web_before + 1
+
+    metrics = await client.get("/metrics")
+    assert metrics.status_code == 200
+    assert 'py_wallet_registration_completed_total{channel="telegram"}' in metrics.text
+    assert 'channel="unbounded-client-value"' not in metrics.text
+    assert "registration-metric@example.com" not in metrics.text

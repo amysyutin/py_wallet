@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from time import perf_counter
-from typing import Any
+from typing import Any, Literal
 
 import requests
 
@@ -51,6 +51,7 @@ def create_snapshot_job(
     wallet_id: int | None = None,
     group_id: int | None = None,
     trigger_type: str = "manual",
+    activation_channel: Literal["web", "telegram"] | None = None,
 ) -> SnapshotJobResult:
     payload: dict[str, Any] = {
         "user_id": user_id,
@@ -61,6 +62,8 @@ def create_snapshot_job(
         payload["wallet_id"] = wallet_id
     if group_id is not None:
         payload["group_id"] = group_id
+    if activation_channel is not None:
+        payload["activation_channel"] = activation_channel
 
     headers = {"Content-Type": "application/json"}
     if settings.snapshot_internal_api_token:

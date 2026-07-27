@@ -124,6 +124,8 @@ In addition to automatic HTTP RED metrics, `/metrics` exposes:
 - `py_wallet_snapshot_service_client_requests_total`
 - `py_wallet_snapshot_service_client_request_duration_seconds`
 - `py_wallet_snapshot_job_create_total`
+- `py_wallet_registration_completed_total{channel}`
+- `py_wallet_first_wallet_added_total{channel,wallet_type}`
 - `py_wallet_snapshot_scheduler_last_tick_timestamp_seconds`
 - `py_wallet_snapshot_scheduler_ticks_total`
 - `py_wallet_snapshot_scheduler_jobs_total`
@@ -132,8 +134,11 @@ In addition to automatic HTTP RED metrics, `/metrics` exposes:
 - `py_wallet_wallet_snapshot_freshness_seconds`
 
 Labels are restricted to bounded operation, scope, outcome, trigger, source,
-version, SHA, and environment values. User IDs, wallet IDs, addresses, job IDs,
-RPC URLs, and error messages are never exported as Prometheus labels.
+channel (`web` or `telegram`), wallet type, version, SHA, and environment
+values. The frontend sends `X-Client-Channel`; missing or unexpected values
+collapse to `web` instead of creating new label values. User IDs, wallet IDs,
+addresses, job IDs, RPC URLs, and error messages are never exported as
+Prometheus labels.
 
 For existing EVM wallets, `PATCH /wallets/{id}` accepts `chain_type` and
 `address` (together or separately). `wallet_type` cannot be changed after

@@ -17,6 +17,7 @@ from app.db.models.telegram import (
 )
 from app.db.models.user import User
 from app.db.models.wallet_group import WalletGroup
+from app.metrics import REGISTRATION_COMPLETED
 from app.services.telegram_auth import TelegramInitDataError, validate_init_data
 from app.services.telegram_daily_balance import (
     TelegramBotClient,
@@ -240,6 +241,7 @@ async def test_telegram_login_is_stable_and_notifications_are_opt_in(
     client, db_session, monkeypatch
 ):
     configure_telegram(monkeypatch)
+    registration_before = REGISTRATION_COMPLETED.labels(channel="telegram")._value.get()
     payload = {"init_data": signed_init_data()}
     first = await client.post("/auth/telegram", json=payload)
     assert first.status_code == 200
@@ -251,6 +253,10 @@ async def test_telegram_login_is_stable_and_notifications_are_opt_in(
     assert second.status_code == 200
     assert second.json()["is_new_user"] is False
     assert int(decode_access_token(second.json()["access_token"])) == user_id
+    assert (
+        REGISTRATION_COMPLETED.labels(channel="telegram")._value.get()
+        == registration_before + 1
+    )
 
     headers = {"Authorization": f"Bearer {first.json()['access_token']}"}
     settings = await client.get("/telegram/settings", headers=headers)

@@ -32,6 +32,16 @@ SNAPSHOT_JOB_CREATE = Counter(
     "Snapshot job creation attempts by trigger, scope and outcome.",
     ("trigger", "scope", "outcome"),
 )
+FIRST_WALLET_ADDED = Counter(
+    "py_wallet_first_wallet_added_total",
+    "Users who successfully added their first wallet.",
+    ("channel", "wallet_type"),
+)
+REGISTRATION_COMPLETED = Counter(
+    "py_wallet_registration_completed_total",
+    "New user registrations committed successfully.",
+    ("channel",),
+)
 
 SNAPSHOT_SCHEDULER_LAST_TICK = Gauge(
     "py_wallet_snapshot_scheduler_last_tick_timestamp_seconds",

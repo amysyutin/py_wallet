@@ -15,7 +15,8 @@ from app.core.security import (
 from app.db.models.user import User, UserRole
 from app.db.models.telegram import TelegramAccount, TelegramNotificationSettings
 from app.core.config import get_settings
-from app.deps import CurrentUser, SessionDep
+from app.deps import ClientChannel, CurrentUser, SessionDep
+from app.metrics import REGISTRATION_COMPLETED
 from app.schemas.auth import (
     PasswordChangeRequest,
     TelegramAuthRequest,
@@ -32,7 +33,11 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
-async def register(payload: UserRegister, session: SessionDep) -> User:
+async def register(
+    payload: UserRegister,
+    session: SessionDep,
+    client_channel: ClientChannel,
+) -> User:
     email = normalize_email(str(payload.email))
     existing = await session.scalar(select(User).where(User.email == email))
     if existing is not None:
@@ -47,6 +52,7 @@ async def register(payload: UserRegister, session: SessionDep) -> User:
     session.add(user)
     await session.commit()
     await session.refresh(user)
+    REGISTRATION_COMPLETED.labels(channel=client_channel).inc()
     return user
 
 
@@ -179,6 +185,9 @@ async def telegram_login(
         raise HTTPException(
             status.HTTP_409_CONFLICT, "Telegram account already exists"
         ) from exc
+    if is_new_user:
+        # The authenticated endpoint itself is the channel source of truth.
+        REGISTRATION_COMPLETED.labels(channel="telegram").inc()
     return TelegramAuthResponse(
         access_token=create_access_token(user.id),
         is_new_user=is_new_user,

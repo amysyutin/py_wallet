@@ -1,6 +1,6 @@
 """Tests for extended wallet CRUD and migration backfill behavior."""
 
-from unittest.mock import ANY, Mock, patch
+from unittest.mock import ANY, Mock, call, patch
 
 from httpx import AsyncClient
 from sqlalchemy import select, text
@@ -97,23 +97,45 @@ async def test_create_wallet_starts_auto_snapshot_when_explicitly_enabled(
     ):
         response = await client.post(
             "/wallets",
-            headers=auth_headers,
+            headers={**auth_headers, "X-Client-Channel": "telegram"},
             json={
                 "label": "Auto snapshot",
                 "address": "0x0000000000000000000000000000000000000012",
                 "chain_type": "mainnet",
             },
         )
-        assert response.status_code == 201
-        assert len(scheduled) == 1
-        await scheduled[0]
-        create_snapshot_job.assert_called_once_with(
-            settings,
-            user_id=ANY,
-            scope_type="wallet",
-            wallet_id=response.json()["id"],
-            trigger_type="auto",
+        repeat = await client.post(
+            "/wallets",
+            headers={**auth_headers, "X-Client-Channel": "web"},
+            json={
+                "label": "Repeat auto snapshot",
+                "address": "0x0000000000000000000000000000000000000013",
+                "chain_type": "mainnet",
+            },
         )
+        assert response.status_code == 201
+        assert repeat.status_code == 201
+        assert len(scheduled) == 2
+        for coroutine in scheduled:
+            await coroutine
+        assert create_snapshot_job.call_args_list == [
+            call(
+                settings,
+                user_id=ANY,
+                scope_type="wallet",
+                wallet_id=response.json()["id"],
+                trigger_type="auto",
+                activation_channel="telegram",
+            ),
+            call(
+                settings,
+                user_id=ANY,
+                scope_type="wallet",
+                wallet_id=repeat.json()["id"],
+                trigger_type="auto",
+                activation_channel=None,
+            ),
+        ]
 
 
 async def test_create_manual_wallet_without_address(
