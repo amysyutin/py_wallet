@@ -100,6 +100,7 @@ Authenticated endpoints require `Authorization: Bearer <token>`:
 | `DELETE` | `/wallets/{id}/balances/{asset_id}` | Delete one manual balance row. |
 | `POST` | `/snapshot` | Create a snapshot for one active wallet or all active EVM wallets; EVM snapshots aggregate the wallet address across all supported EVM chains. |
 | `GET` | `/portfolio?wallet_id=<id>&days=30` | Return snapshot history for a wallet (`total_usd` from multi-chain EVM snapshots). |
+| `GET` | `/portfolio/history?group_id=<id>&days=30` | Return an aggregated group history; without `wallet_id` or `group_id`, aggregate all active wallets. |
 | `GET` | `/portfolio/summary` | Return total USD value and top assets from the latest wallet snapshots. |
 
 Supported `chain_type` values for EVM wallets are `mainnet`, `base`, `bnb`,
@@ -137,10 +138,11 @@ In addition to automatic HTTP RED metrics, `/metrics` exposes:
 
 Labels are restricted to bounded operation, scope, outcome, trigger, source,
 channel (`web` or `telegram`), wallet type, version, SHA, and environment
-values. The frontend sends `X-Client-Channel`; missing or unexpected values
-collapse to `web` instead of creating new label values. User IDs, wallet IDs,
-addresses, job IDs, RPC URLs, and error messages are never exported as
-Prometheus labels.
+values. Channel attribution is derived server-side: email registration is
+`web`, Telegram authentication is `telegram`, and first-wallet attribution uses
+the user's linked Telegram account. Caller-supplied channel headers are ignored.
+User IDs, wallet IDs, addresses, job IDs, RPC URLs, and error messages are never
+exported as Prometheus labels.
 
 For existing EVM wallets, `PATCH /wallets/{id}` accepts `chain_type` and
 `address` (together or separately). `wallet_type` cannot be changed after
@@ -154,7 +156,14 @@ Use `POST /wallets/{id}/snapshots` to request an explicit refresh.
 
 `POST /snapshot` uses the same multi-chain EVM scope for stored history, so
 `GET /portfolio?wallet_id=<id>&days=30` can power a chart of the wallet's
-total USD value across all EVM networks over time.
+total USD value across all EVM networks over time. Group and all-wallet history
+carry forward each wallet's latest value and emit the aggregate after every
+snapshot event.
+
+If live RPC balances are available but a native-token price cannot be resolved,
+the chain is returned as `partial_success` with
+`error_type=native_price_unavailable`; stablecoin and priced-token values remain
+in `total_usd` instead of presenting the chain as fully valued.
 
 ```bash
 # Latest total across all EVM chains for a wallet
@@ -234,7 +243,7 @@ cp .env.example .env
 | `JWT_SECRET` | Staging/Production | Secret used to sign access tokens. Required in staging/production (minimum 32 characters). |
 | `JWT_ALG` | No | JWT algorithm. Only `HS256` is allowed. Defaults to `HS256`. |
 | `ACCESS_TOKEN_TTL_MIN` | No | Access token lifetime in minutes. Defaults to `60`. |
-| `SNAPSHOT_SCHEMA_REQUIRED` | No | Require snapshot-service tables in `/health/ready`; defaults to `true`. Set to `false` only for isolated API smoke environments that do not run snapshot-service. |
+| `SNAPSHOT_SCHEMA_REQUIRED` | No | Require snapshot-service tables in `/health/ready`; defaults to `true`. It may be `false` only in development/test isolation and is rejected in staging/production. |
 | `EVM1_ADDRESS` | For default `/assets` address | Default EVM wallet address. |
 | `RPC_URL_MAINNET` | For Mainnet aggregation | Comma-separated Ethereum Mainnet RPC URLs. |
 | `RPC_URL_BASE` | For Base aggregation | Comma-separated Base RPC URLs. |

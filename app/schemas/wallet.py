@@ -1,12 +1,25 @@
 from datetime import datetime
 from decimal import Decimal
+import re
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.config import CHAIN_RPC
 
 SUPPORTED_CHAINS = set(CHAIN_RPC)
+_EVM_ADDRESS_RE = re.compile(r"^0[xX][a-fA-F0-9]{40}$")
+
+
+def normalize_evm_address(address: str | None) -> str | None:
+    if address is None:
+        return None
+    normalized = address.strip()
+    if not normalized:
+        return normalized
+    if _EVM_ADDRESS_RE.fullmatch(normalized) is None:
+        raise ValueError("address must be a 20-byte 0x-prefixed EVM address")
+    return f"0x{normalized[2:]}"
 
 
 def validate_wallet_network_state(
@@ -27,12 +40,24 @@ def validate_wallet_network_state(
 
 
 class WalletCreate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     label: str = Field(min_length=1, max_length=100)
     wallet_type: Literal["evm", "manual"] = "evm"
-    address: str | None = Field(default=None, max_length=128)
-    chain_type: str
+    address: str | None = Field(default=None, max_length=42)
+    chain_type: str = Field(min_length=1, max_length=32)
     group_id: int | None = None
     notes: str | None = Field(default=None, max_length=500)
+
+    @field_validator("address")
+    @classmethod
+    def validate_address(cls, value: str | None) -> str | None:
+        return normalize_evm_address(value)
+
+    @field_validator("chain_type")
+    @classmethod
+    def normalize_chain_type(cls, value: str) -> str:
+        return value.lower()
 
     @model_validator(mode="after")
     def validate_wallet_type_rules(self) -> "WalletCreate":
@@ -41,14 +66,24 @@ class WalletCreate(BaseModel):
 
 
 class WalletUpdate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     label: str | None = Field(default=None, min_length=1, max_length=100)
-    address: str | None = Field(default=None, max_length=128)
-    chain_type: str | None = None
+    address: str | None = Field(default=None, max_length=42)
+    chain_type: str | None = Field(default=None, min_length=1, max_length=32)
     group_id: int | None = None
     is_active: bool | None = None
     notes: str | None = Field(default=None, max_length=500)
+
+    @field_validator("address")
+    @classmethod
+    def validate_address(cls, value: str | None) -> str | None:
+        return normalize_evm_address(value)
+
+    @field_validator("chain_type")
+    @classmethod
+    def normalize_chain_type(cls, value: str | None) -> str | None:
+        return value.lower() if value is not None else None
 
     @model_validator(mode="after")
     def reject_null_for_required_fields(self) -> "WalletUpdate":

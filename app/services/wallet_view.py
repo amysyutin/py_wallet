@@ -63,16 +63,30 @@ def _manual_value(amount: Decimal, price_usd: Decimal | None) -> Decimal:
 async def _latest_wallet_snapshot_ids(
     session: AsyncSession, wallet_ids: list[int]
 ) -> dict[int, int]:
-    """Return wallet_id -> max WalletSnapshot.id for readable statuses."""
+    """Return wallet_id -> newest-started readable WalletSnapshot.id."""
     if not wallet_ids:
         return {}
-    rows = await session.execute(
-        select(WalletSnapshot.wallet_id, func.max(WalletSnapshot.id))
+    snapshot_rank = func.row_number().over(
+        partition_by=WalletSnapshot.wallet_id,
+        order_by=(SnapshotRun.created_at.desc(), WalletSnapshot.id.desc()),
+    )
+    ranked = (
+        select(
+            WalletSnapshot.wallet_id,
+            WalletSnapshot.id.label("snapshot_id"),
+            snapshot_rank.label("snapshot_rank"),
+        )
+        .join(SnapshotRun, SnapshotRun.id == WalletSnapshot.snapshot_run_id)
         .where(
             WalletSnapshot.wallet_id.in_(wallet_ids),
             WalletSnapshot.status.in_(SNAPSHOT_READ_STATUSES),
         )
-        .group_by(WalletSnapshot.wallet_id)
+        .subquery()
+    )
+    rows = await session.execute(
+        select(ranked.c.wallet_id, ranked.c.snapshot_id).where(
+            ranked.c.snapshot_rank == 1
+        )
     )
     return {wallet_id: snapshot_id for wallet_id, snapshot_id in rows}
 
@@ -335,7 +349,6 @@ async def build_latest_wallet_assets_summary(
     address: str,
 ) -> PortfolioSummary | None:
     """Build the existing assets response from the current address revision."""
-    snapshot_at = func.coalesce(SnapshotRun.finished_at, SnapshotRun.created_at)
     wallet_snapshot = await session.scalar(
         select(WalletSnapshot)
         .join(SnapshotRun, SnapshotRun.id == WalletSnapshot.snapshot_run_id)
@@ -349,7 +362,7 @@ async def build_latest_wallet_assets_summary(
             WalletSnapshot.status.in_(SNAPSHOT_READ_STATUSES),
             SnapshotRun.created_at >= wallet.address_updated_at,
         )
-        .order_by(snapshot_at.desc(), WalletSnapshot.id.desc())
+        .order_by(SnapshotRun.created_at.desc(), WalletSnapshot.id.desc())
         .limit(1)
     )
     if wallet_snapshot is not None:
@@ -528,7 +541,7 @@ async def list_wallet_snapshots(
         )
         .join(SnapshotRun, SnapshotRun.id == WalletSnapshot.snapshot_run_id)
         .where(WalletSnapshot.wallet_id == wallet_id)
-        .order_by(snapshot_at.desc(), WalletSnapshot.id.desc())
+        .order_by(SnapshotRun.created_at.desc(), WalletSnapshot.id.desc())
         .limit(limit)
     )
     return [

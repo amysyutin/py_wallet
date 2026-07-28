@@ -259,15 +259,15 @@ def test_get_native_price_uses_stale_value_when_refresh_fails(mock_get, monkeypa
 
 
 @patch("app.connectors.price.coingecko.requests.get")
-def test_get_native_price_handles_exception(mock_get):
+def test_get_native_price_raises_without_cached_value(mock_get):
     import app.connectors.price.coingecko as cg
 
     cg.NATIVE_PRICE_CACHE.pop("binancecoin", None)
     cg.NATIVE_PRICE_CACHE_UPDATED_AT.pop("binancecoin", None)
 
     mock_get.side_effect = Exception("Network error")
-    price = cg.get_native_price_usd_cached("bnb")
-    assert price == 0.0
+    with pytest.raises(Exception, match="Network error"):
+        cg.get_native_price_usd_cached("bnb")
 
     cg.NATIVE_PRICE_CACHE.pop("binancecoin", None)
     cg.NATIVE_PRICE_CACHE_UPDATED_AT.pop("binancecoin", None)

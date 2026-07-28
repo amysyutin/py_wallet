@@ -80,6 +80,23 @@ async def test_create_evm_wallet_with_manual_chain_type(
     assert r.status_code == 422
 
 
+async def test_create_evm_wallet_rejects_malformed_address(
+    client: AsyncClient, auth_headers: dict
+):
+    response = await client.post(
+        "/wallets",
+        headers=auth_headers,
+        json={
+            "label": "Malformed",
+            "wallet_type": "evm",
+            "address": "not-an-address",
+            "chain_type": "mainnet",
+        },
+    )
+
+    assert response.status_code == 422
+
+
 async def test_manual_wallet_assigned_to_own_group(
     client: AsyncClient, auth_headers: dict
 ):

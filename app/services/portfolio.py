@@ -137,10 +137,14 @@ def summarize_all(address: str) -> PortfolioSummary:
         chains.append(cs)
         if cs.status != "success":
             continue
+        native_usd = 0.0
         try:
-            native_usd = cs.native_amount * get_native_price_usd_cached(chain)
+            if cs.native_amount:
+                native_usd = cs.native_amount * get_native_price_usd_cached(chain)
         except Exception:
-            native_usd = 0.0
+            cs.status = "partial_success"
+            cs.error_type = "native_price_unavailable"
+            cs.error_message = "Native token price is unavailable"
         usdt_usd = cs.usdt_amount
         usdc_usd = cs.usdc_amount
         tokens_usd = sum(t.usd for t in cs.tokens)

@@ -15,7 +15,7 @@ from app.core.security import (
 from app.db.models.user import User, UserRole
 from app.db.models.telegram import TelegramAccount, TelegramNotificationSettings
 from app.core.config import get_settings
-from app.deps import ClientChannel, CurrentUser, SessionDep
+from app.deps import CurrentUser, SessionDep
 from app.metrics import REGISTRATION_COMPLETED
 from app.schemas.auth import (
     PasswordChangeRequest,
@@ -36,7 +36,6 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 async def register(
     payload: UserRegister,
     session: SessionDep,
-    client_channel: ClientChannel,
 ) -> User:
     email = normalize_email(str(payload.email))
     existing = await session.scalar(select(User).where(User.email == email))
@@ -50,9 +49,18 @@ async def register(
         role=UserRole.user,
     )
     session.add(user)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Email already registered",
+        ) from None
     await session.refresh(user)
-    REGISTRATION_COMPLETED.labels(channel=client_channel).inc()
+    # Email registration is a web flow. Telegram registration is recorded by
+    # the separately authenticated /auth/telegram endpoint below.
+    REGISTRATION_COMPLETED.labels(channel="web").inc()
     return user
 
 

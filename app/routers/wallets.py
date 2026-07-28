@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from fastapi.concurrency import run_in_threadpool
@@ -8,9 +9,10 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.config import get_settings
 from app.log import get_logger
+from app.db.models.telegram import TelegramAccount
 from app.db.models.wallet import Wallet
 from app.db.models.wallet_group import WalletGroup
-from app.deps import ClientChannel, ClientChannelValue, CurrentUser, SessionDep
+from app.deps import CurrentUser, SessionDep
 from app.models import PortfolioSummary
 from app.metrics import FIRST_WALLET_ADDED
 from app.schemas.manual_balance import ManualBalancesPut, ManualBalancesRead
@@ -40,6 +42,7 @@ from app.services.wallet_view import (
 
 router = APIRouter(prefix="/wallets", tags=["wallets"])
 logger = get_logger(__name__)
+ClientChannelValue = Literal["web", "telegram"]
 
 
 def _is_active_evm_duplicate(exc: IntegrityError) -> bool:
@@ -114,6 +117,15 @@ async def _validate_group_id(
         )
 
 
+async def _get_server_activation_channel(
+    session: SessionDep, user_id: int
+) -> ClientChannelValue:
+    telegram_account_id = await session.scalar(
+        select(TelegramAccount.id).where(TelegramAccount.user_id == user_id)
+    )
+    return "telegram" if telegram_account_id is not None else "web"
+
+
 async def _ensure_unique_active_evm_address(
     session: SessionDep,
     *,
@@ -151,16 +163,20 @@ async def create_wallet(
     payload: WalletCreate,
     current_user: CurrentUser,
     session: SessionDep,
-    client_channel: ClientChannel,
 ) -> Wallet:
     # Serialize creates for one owner so two concurrent first-wallet requests
     # cannot both emit the activation event.
-    await session.execute(select(func.pg_advisory_xact_lock(0x505957, current_user.id)))
+    await session.execute(select(func.pg_advisory_xact_lock(current_user.id)))
     has_wallet = (
         await session.scalar(
             select(Wallet.id).where(Wallet.user_id == current_user.id).limit(1)
         )
         is not None
+    )
+    activation_channel = (
+        await _get_server_activation_channel(session, current_user.id)
+        if not has_wallet
+        else None
     )
     await _validate_group_id(session, current_user.id, payload.group_id)
     if payload.wallet_type == "evm":
@@ -193,7 +209,7 @@ async def create_wallet(
     await session.refresh(wallet)
     if not has_wallet:
         FIRST_WALLET_ADDED.labels(
-            channel=client_channel,
+            channel=activation_channel,
             wallet_type=wallet.wallet_type,
         ).inc()
 
@@ -203,7 +219,7 @@ async def create_wallet(
             _trigger_wallet_snapshot_background(
                 user_id=current_user.id,
                 wallet_id=wallet.id,
-                activation_channel=client_channel if not has_wallet else None,
+                activation_channel=activation_channel,
             )
         )
     return wallet

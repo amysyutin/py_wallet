@@ -3,8 +3,12 @@ from unittest.mock import Mock, patch
 
 import pytest
 import requests
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
+from app.db.models.telegram import TelegramAccount
+from app.db.models.user import User
 from app.metrics import (
     FIRST_WALLET_ADDED,
     REGISTRATION_COMPLETED,
@@ -129,16 +133,30 @@ def test_wallet_balance_source_and_freshness_metrics() -> None:
 
 
 async def test_first_wallet_metric_uses_bounded_channel_and_counts_once(
-    client, auth_headers: dict[str, str]
+    client,
+    auth_headers: dict[str, str],
+    db_session: AsyncSession,
 ) -> None:
     telegram_evm = {"channel": "telegram", "wallet_type": "evm"}
     web_manual = {"channel": "web", "wallet_type": "manual"}
     telegram_before = _counter_value(FIRST_WALLET_ADDED, **telegram_evm)
     web_before = _counter_value(FIRST_WALLET_ADDED, **web_manual)
+    telegram_user = await db_session.scalar(
+        select(User).where(User.email == "test@example.com")
+    )
+    assert telegram_user is not None
+    db_session.add(
+        TelegramAccount(
+            user_id=telegram_user.id,
+            telegram_user_id=987654321,
+            first_name="Metrics",
+        )
+    )
+    await db_session.flush()
 
     first = await client.post(
         "/wallets",
-        headers={**auth_headers, "X-Client-Channel": "telegram"},
+        headers={**auth_headers, "X-Client-Channel": "web"},
         json={
             "label": "First",
             "address": "0x00000000000000000000000000000000000000f1",
@@ -166,7 +184,7 @@ async def test_first_wallet_metric_uses_bounded_channel_and_counts_once(
         "/wallets",
         headers={
             "Authorization": f"Bearer {login.json()['access_token']}",
-            "X-Client-Channel": "unexpected",
+            "X-Client-Channel": "telegram",
         },
         json={
             "label": "Fallback",
@@ -187,11 +205,10 @@ async def test_first_wallet_metric_uses_bounded_channel_and_counts_once(
         'py_wallet_first_wallet_added_total{channel="telegram",wallet_type="evm"}'
         in metrics.text
     )
-    assert 'channel="unexpected"' not in metrics.text
     assert "0x00000000000000000000000000000000000000f1" not in metrics.text
 
 
-async def test_email_registration_metric_counts_commits_with_bounded_channel(
+async def test_email_registration_metric_ignores_caller_supplied_channel(
     client,
 ) -> None:
     web_labels = {"channel": "web"}
@@ -222,10 +239,8 @@ async def test_email_registration_metric_counts_commits_with_bounded_channel(
     assert created.status_code == 201
     assert duplicate.status_code == 409
     assert fallback.status_code == 201
-    assert (
-        _counter_value(REGISTRATION_COMPLETED, **telegram_labels) == telegram_before + 1
-    )
-    assert _counter_value(REGISTRATION_COMPLETED, **web_labels) == web_before + 1
+    assert _counter_value(REGISTRATION_COMPLETED, **telegram_labels) == telegram_before
+    assert _counter_value(REGISTRATION_COMPLETED, **web_labels) == web_before + 2
 
     metrics = await client.get("/metrics")
     assert metrics.status_code == 200
