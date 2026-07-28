@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -22,9 +23,30 @@ class AssetShare(BaseModel):
     share_pct: float
 
 
+class PortfolioChainIssue(BaseModel):
+    chain: str
+    status: str
+    error_type: str | None = None
+    wallets_count: int
+
+
+class PortfolioDataHealth(BaseModel):
+    state: Literal["fresh", "updating", "partial", "stale"]
+    freshness: Literal["fresh", "aging", "stale", "unknown"]
+    as_of: datetime | None = None
+    wallets_covered: int
+    wallets_total: int
+    snapshot_wallets: int
+    manual_wallets: int
+    missing_wallets: int
+    refresh_in_progress: bool
+    chain_issues: list[PortfolioChainIssue]
+
+
 class PortfolioSummary(BaseModel):
     total_usd: Decimal
     wallets_count: int
     active_wallets_count: int
     last_snapshot_at: datetime | None = None
     top_assets: list[AssetShare]
+    data_health: PortfolioDataHealth

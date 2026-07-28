@@ -5,12 +5,15 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 
 from app.db.models.snapshot import Snapshot
-from app.db.models.snapshot_service import SnapshotRun, WalletSnapshot
+from app.core.config import get_settings
+from app.db.models.snapshot_service import ChainSnapshot, SnapshotRun, WalletSnapshot
 from app.db.models.wallet import Wallet
 from app.db.models.wallet_group import WalletGroup
 from app.deps import CurrentUser, SessionDep
 from app.schemas.portfolio import (
     AssetShare,
+    PortfolioChainIssue,
+    PortfolioDataHealth,
     PortfolioHistory,
     PortfolioPoint,
     PortfolioSummary,
@@ -19,6 +22,25 @@ from app.services.wallet_view import build_wallet_balance_info
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 SNAPSHOT_READ_STATUSES = ("success", "partial_success")
+ACTIVE_SNAPSHOT_STATUSES = ("pending", "running")
+
+
+def _portfolio_freshness(
+    as_of: datetime | None,
+    *,
+    fresh_seconds: int,
+    stale_seconds: int,
+) -> str:
+    if as_of is None:
+        return "unknown"
+    if as_of.tzinfo is None:
+        as_of = as_of.replace(tzinfo=timezone.utc)
+    age_seconds = max(0.0, (datetime.now(timezone.utc) - as_of).total_seconds())
+    if age_seconds <= fresh_seconds:
+        return "fresh"
+    if age_seconds <= stale_seconds:
+        return "aging"
+    return "stale"
 
 
 async def _portfolio_history(
@@ -297,6 +319,93 @@ async def portfolio_summary(
         if balance_info[wallet.id].last_snapshot_at is not None
     ]
     last_snapshot_at = max(snapshot_dates) if snapshot_dates else None
+    # The conservative portfolio timestamp is the oldest automated source
+    # contributing to the total. A newest-wallet timestamp would hide stale
+    # wallets behind one recently refreshed wallet.
+    as_of = min(snapshot_dates) if snapshot_dates else None
+
+    snapshot_wallets = sum(
+        balance_info[wallet.id].balance_source == "latest_snapshot"
+        for wallet in wallets
+    )
+    manual_wallets = sum(
+        balance_info[wallet.id].balance_source == "manual" for wallet in wallets
+    )
+    missing_wallets = sum(
+        balance_info[wallet.id].balance_source == "none" for wallet in wallets
+    )
+    wallets_covered = snapshot_wallets + manual_wallets
+
+    refresh_in_progress = bool(
+        await session.scalar(
+            select(func.count())
+            .select_from(SnapshotRun)
+            .where(
+                SnapshotRun.user_id == current_user.id,
+                SnapshotRun.status.in_(ACTIVE_SNAPSHOT_STATUSES),
+            )
+        )
+    )
+
+    latest_snapshot_ids = [
+        balance_info[wallet.id].wallet_snapshot_id
+        for wallet in wallets
+        if balance_info[wallet.id].wallet_snapshot_id is not None
+    ]
+    issue_rows = []
+    if latest_snapshot_ids:
+        issue_rows = list(
+            await session.execute(
+                select(
+                    ChainSnapshot.chain,
+                    ChainSnapshot.status,
+                    ChainSnapshot.error_type,
+                    func.count(func.distinct(ChainSnapshot.wallet_snapshot_id)).label(
+                        "wallets_count"
+                    ),
+                )
+                .where(
+                    ChainSnapshot.wallet_snapshot_id.in_(latest_snapshot_ids),
+                    ChainSnapshot.status != "success",
+                )
+                .group_by(
+                    ChainSnapshot.chain,
+                    ChainSnapshot.status,
+                    ChainSnapshot.error_type,
+                )
+                .order_by(
+                    ChainSnapshot.chain,
+                    ChainSnapshot.status,
+                    ChainSnapshot.error_type,
+                )
+            )
+        )
+    chain_issues = [
+        PortfolioChainIssue(
+            chain=row.chain,
+            status=row.status,
+            error_type=row.error_type,
+            wallets_count=row.wallets_count,
+        )
+        for row in issue_rows
+    ]
+
+    settings = get_settings()
+    freshness = _portfolio_freshness(
+        as_of,
+        fresh_seconds=settings.portfolio_fresh_seconds,
+        stale_seconds=settings.portfolio_stale_seconds,
+    )
+    if chain_issues:
+        health_state = "partial"
+    elif refresh_in_progress:
+        health_state = "updating"
+    elif missing_wallets:
+        health_state = "partial"
+    elif freshness == "stale":
+        health_state = "stale"
+    else:
+        health_state = "fresh"
 
     asset_totals: dict[str, Decimal] = {}
     for wallet in wallets:
@@ -324,4 +433,16 @@ async def portfolio_summary(
         active_wallets_count=active_wallets_count,
         last_snapshot_at=last_snapshot_at,
         top_assets=top_assets,
+        data_health=PortfolioDataHealth(
+            state=health_state,
+            freshness=freshness,
+            as_of=as_of,
+            wallets_covered=wallets_covered,
+            wallets_total=active_wallets_count,
+            snapshot_wallets=snapshot_wallets,
+            manual_wallets=manual_wallets,
+            missing_wallets=missing_wallets,
+            refresh_in_progress=refresh_in_progress,
+            chain_issues=chain_issues,
+        ),
     )

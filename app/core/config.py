@@ -126,6 +126,8 @@ class Settings(BaseSettings):
     snapshot_auto_on_wallet_create: bool = True
     snapshot_scheduler_enabled: bool = True
     snapshot_scheduler_interval_seconds: int = Field(default=300, gt=0)
+    portfolio_fresh_seconds: int = Field(default=900, gt=0)
+    portfolio_stale_seconds: int = Field(default=1800, gt=0)
     telegram_bot_token: str = ""
     telegram_bot_username: str = "py_WalletBot"
     telegram_mini_app_url: str = "https://pywallet.dev/telegram"
@@ -205,6 +207,10 @@ class Settings(BaseSettings):
         if env in ("staging", "production") and not self.snapshot_schema_required:
             raise ValueError(
                 "SNAPSHOT_SCHEMA_REQUIRED cannot be false in staging or production"
+            )
+        if self.portfolio_stale_seconds <= self.portfolio_fresh_seconds:
+            raise ValueError(
+                "PORTFOLIO_STALE_SECONDS must be greater than PORTFOLIO_FRESH_SECONDS"
             )
         return self
 
