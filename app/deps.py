@@ -1,6 +1,6 @@
-from typing import Annotated, Literal
+from typing import Annotated
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,17 +9,6 @@ from app.db.models.user import User, UserRole
 from app.db.session import get_session
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
-ClientChannelValue = Literal["web", "telegram"]
-
-
-def get_client_channel(
-    value: Annotated[str | None, Header(alias="X-Client-Channel")] = None,
-) -> ClientChannelValue:
-    """Collapse all callers into the two bounded product channels."""
-    return "telegram" if value == "telegram" else "web"
-
-
-ClientChannel = Annotated[ClientChannelValue, Depends(get_client_channel)]
 
 bearer_scheme = HTTPBearer(auto_error=False)
 

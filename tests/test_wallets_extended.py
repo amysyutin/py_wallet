@@ -7,7 +7,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
-from app.core.security import hash_password
+from app.core.security import create_access_token, hash_password
 from app.db.models.user import User
 from app.db.models.wallet import Wallet
 from app.db.models.wallet_group import WalletGroup
@@ -72,6 +72,33 @@ async def test_create_wallet_defaults(client: AsyncClient, auth_headers: dict):
     assert data["group_id"] is None
 
 
+async def test_create_wallet_supports_bigint_user_id(
+    client: AsyncClient, db_session: AsyncSession
+):
+    user_id = 2**31
+    db_session.add(
+        User(
+            id=user_id,
+            email="bigint-wallet-user@example.com",
+            auth_hash=hash_password("password12"),
+        )
+    )
+    await db_session.flush()
+
+    response = await client.post(
+        "/wallets",
+        headers={"Authorization": f"Bearer {create_access_token(user_id)}"},
+        json={
+            "label": "BIGINT owner",
+            "wallet_type": "manual",
+            "chain_type": "manual",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["label"] == "BIGINT owner"
+
+
 async def test_create_wallet_starts_auto_snapshot_when_explicitly_enabled(
     client: AsyncClient, auth_headers: dict
 ):
@@ -125,7 +152,7 @@ async def test_create_wallet_starts_auto_snapshot_when_explicitly_enabled(
                 scope_type="wallet",
                 wallet_id=response.json()["id"],
                 trigger_type="auto",
-                activation_channel="telegram",
+                activation_channel="web",
             ),
             call(
                 settings,
@@ -604,6 +631,83 @@ async def test_get_wallet_assets_prefers_latest_readable_snapshot(
     assert data["chains"][1]["status"] == "failed"
     assert data["chains"][1]["error_type"] == "rpc_error"
     assert data["chains"][1]["error_message"] == "Snapshot collection failed"
+    mock_live_assets.assert_not_awaited()
+
+
+@patch("app.routers.wallets.lookup_live_assets", new_callable=AsyncMock)
+async def test_get_wallet_assets_prefers_newer_started_run_when_old_run_finishes_later(
+    mock_live_assets,
+    client: AsyncClient,
+    auth_headers: dict,
+    db_session: AsyncSession,
+):
+    from datetime import timedelta
+    from decimal import Decimal
+
+    from app.db.models.snapshot_service import SnapshotRun, WalletSnapshot
+
+    wallet = (
+        await client.post(
+            "/wallets",
+            headers=auth_headers,
+            json={
+                "label": "Out-of-order runs",
+                "address": "0x00000000000000000000000000000000000000b5",
+                "chain_type": "mainnet",
+            },
+        )
+    ).json()
+    db_wallet = await db_session.get(Wallet, wallet["id"])
+    assert db_wallet is not None
+    first_started = db_wallet.address_updated_at + timedelta(seconds=1)
+    second_started = first_started + timedelta(seconds=5)
+    old_run = SnapshotRun(
+        user_id=db_wallet.user_id,
+        wallet_id=db_wallet.id,
+        trigger_type="manual",
+        scope_type="wallet",
+        status="success",
+        created_at=first_started,
+        finished_at=second_started + timedelta(seconds=10),
+    )
+    new_run = SnapshotRun(
+        user_id=db_wallet.user_id,
+        wallet_id=db_wallet.id,
+        trigger_type="manual",
+        scope_type="wallet",
+        status="success",
+        created_at=second_started,
+        finished_at=second_started + timedelta(seconds=1),
+    )
+    db_session.add_all([old_run, new_run])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            WalletSnapshot(
+                snapshot_run_id=old_run.id,
+                wallet_id=db_wallet.id,
+                wallet_type="evm",
+                status="success",
+                total_usd=Decimal("100"),
+            ),
+            WalletSnapshot(
+                snapshot_run_id=new_run.id,
+                wallet_id=db_wallet.id,
+                wallet_type="evm",
+                status="success",
+                total_usd=Decimal("200"),
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    response = await client.get(
+        f"/wallets/{wallet['id']}/assets",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["total_usd"] == 200.0
     mock_live_assets.assert_not_awaited()
 
 

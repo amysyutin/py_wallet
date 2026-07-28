@@ -206,6 +206,55 @@ async def test_symbol_normalization(client: AsyncClient, auth_headers: dict):
     assert r.json()["balances"][0]["symbol"] == "BTC"
 
 
+async def test_blank_symbol_is_rejected(client: AsyncClient, auth_headers: dict):
+    wallet = await _create_manual_wallet(client, auth_headers)
+    response = await client.put(
+        f"/wallets/{wallet['id']}/balances",
+        headers=auth_headers,
+        json={"balances": [{"symbol": "   ", "amount": "1", "price_usd": "1"}]},
+    )
+
+    assert response.status_code == 422
+
+
+async def test_overlong_chain_is_rejected(client: AsyncClient, auth_headers: dict):
+    wallet = await _create_manual_wallet(client, auth_headers)
+    response = await client.put(
+        f"/wallets/{wallet['id']}/balances",
+        headers=auth_headers,
+        json={
+            "balances": [
+                {
+                    "symbol": "BTC",
+                    "chain": "x" * 33,
+                    "amount": "1",
+                    "price_usd": "1",
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 422
+
+
+async def test_duplicate_normalized_assets_are_rejected(
+    client: AsyncClient, auth_headers: dict
+):
+    wallet = await _create_manual_wallet(client, auth_headers)
+    response = await client.put(
+        f"/wallets/{wallet['id']}/balances",
+        headers=auth_headers,
+        json={
+            "balances": [
+                {"symbol": "btc", "amount": "1", "price_usd": "1"},
+                {"symbol": " BTC ", "amount": "2", "price_usd": "1"},
+            ]
+        },
+    )
+
+    assert response.status_code == 422
+
+
 async def test_asset_get_or_create_no_duplicates(
     client: AsyncClient, auth_headers: dict, db_session: AsyncSession
 ):

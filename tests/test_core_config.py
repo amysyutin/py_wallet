@@ -79,6 +79,25 @@ def test_production_rejects_wildcard_trusted_host():
         _settings(APP_ENV="production", JWT_SECRET=secret, trusted_hosts="*")
 
 
+def test_production_requires_snapshot_schema_readiness():
+    secret = secrets.token_urlsafe(48)
+    with pytest.raises(ValidationError):
+        _settings(
+            APP_ENV="production",
+            JWT_SECRET=secret,
+            snapshot_schema_required=False,
+        )
+
+
+def test_test_env_allows_snapshot_schema_readiness_to_be_disabled():
+    settings = _settings(
+        APP_ENV="test",
+        JWT_SECRET=None,
+        snapshot_schema_required=False,
+    )
+    assert settings.snapshot_schema_required is False
+
+
 def test_trusted_hosts_are_parsed_from_csv():
     s = _settings(
         APP_ENV="test",

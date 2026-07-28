@@ -77,7 +77,9 @@ def get_native_price_usd_cached(chain: str) -> float:
         try:
             price = _fetch_price_usd(cg_id)
         except Exception:
-            return cached_price if cached_price is not None else 0.0
+            if cached_price is not None:
+                return cached_price
+            raise
         NATIVE_PRICE_CACHE[cg_id] = price
         NATIVE_PRICE_CACHE_UPDATED_AT[cg_id] = now
         return price

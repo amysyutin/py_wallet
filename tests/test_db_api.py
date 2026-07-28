@@ -1,11 +1,14 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import patch
 
 import bcrypt
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.session import SessionLocal
 from app.db.models.user import User
 from app.db.models.snapshot_service import (
     ChainSnapshot,
@@ -16,6 +19,7 @@ from app.db.models.snapshot_service import (
 from app.db.models.wallet import Wallet
 from app.services.admin_promote import PromoteAdminStatus, promote_admin_by_email
 from app.services.snapshot_jobs import SnapshotJobResult
+from app.main import app
 
 
 async def test_register_and_me(client: AsyncClient):
@@ -44,6 +48,27 @@ async def test_register_saves_email_lowercase(client: AsyncClient):
     )
     assert r.status_code == 201
     assert r.json()["email"] == "mixedcase@example.com"
+
+
+async def test_concurrent_same_email_registration_returns_created_and_conflict():
+    email = "concurrent-register@example.com"
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://test") as api_client:
+        responses = await asyncio.gather(
+            api_client.post(
+                "/auth/register",
+                json={"email": email, "password": "password12"},
+            ),
+            api_client.post(
+                "/auth/register",
+                json={"email": email, "password": "password12"},
+            ),
+        )
+
+    assert sorted(response.status_code for response in responses) == [201, 409]
+    async with SessionLocal() as cleanup_session:
+        await cleanup_session.execute(delete(User).where(User.email == email))
+        await cleanup_session.commit()
 
 
 async def test_login_accepts_email_with_different_case(client: AsyncClient):
@@ -327,6 +352,115 @@ async def test_portfolio_history_and_summary(
     )
     assert hist_named.status_code == 200
     assert len(hist_named.json()["points"]) == 2
+
+
+async def test_group_portfolio_history_aggregates_wallet_values_over_time(
+    client: AsyncClient,
+    auth_headers: dict,
+    db_session: AsyncSession,
+):
+    group = (
+        await client.post(
+            "/wallet-groups",
+            headers=auth_headers,
+            json={"name": "Aggregated history"},
+        )
+    ).json()
+    wallet_one = (
+        await client.post(
+            "/wallets",
+            headers=auth_headers,
+            json={
+                "label": "History one",
+                "address": "0x00000000000000000000000000000000000000d1",
+                "chain_type": "mainnet",
+                "group_id": group["id"],
+            },
+        )
+    ).json()
+    wallet_two = (
+        await client.post(
+            "/wallets",
+            headers=auth_headers,
+            json={
+                "label": "History two",
+                "address": "0x00000000000000000000000000000000000000d2",
+                "chain_type": "mainnet",
+                "group_id": group["id"],
+            },
+        )
+    ).json()
+    first_wallet = await db_session.get(Wallet, wallet_one["id"])
+    second_wallet = await db_session.get(Wallet, wallet_two["id"])
+    assert first_wallet is not None
+    assert second_wallet is not None
+    now = datetime.now(timezone.utc)
+    runs = [
+        SnapshotRun(
+            user_id=first_wallet.user_id,
+            wallet_id=first_wallet.id,
+            trigger_type="manual",
+            scope_type="wallet",
+            status="success",
+            created_at=now - timedelta(minutes=3),
+        ),
+        SnapshotRun(
+            user_id=second_wallet.user_id,
+            wallet_id=second_wallet.id,
+            trigger_type="manual",
+            scope_type="wallet",
+            status="success",
+            created_at=now - timedelta(minutes=2),
+        ),
+        SnapshotRun(
+            user_id=first_wallet.user_id,
+            wallet_id=first_wallet.id,
+            trigger_type="manual",
+            scope_type="wallet",
+            status="success",
+            created_at=now - timedelta(minutes=1),
+        ),
+    ]
+    db_session.add_all(runs)
+    await db_session.flush()
+    db_session.add_all(
+        [
+            WalletSnapshot(
+                snapshot_run_id=runs[0].id,
+                wallet_id=first_wallet.id,
+                wallet_type="evm",
+                status="success",
+                total_usd=Decimal("100"),
+            ),
+            WalletSnapshot(
+                snapshot_run_id=runs[1].id,
+                wallet_id=second_wallet.id,
+                wallet_type="evm",
+                status="success",
+                total_usd=Decimal("200"),
+            ),
+            WalletSnapshot(
+                snapshot_run_id=runs[2].id,
+                wallet_id=first_wallet.id,
+                wallet_type="evm",
+                status="success",
+                total_usd=Decimal("150"),
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    history = await client.get(
+        f"/portfolio/history?group_id={group['id']}&days=30",
+        headers=auth_headers,
+    )
+
+    assert history.status_code == 200
+    assert [Decimal(point["total_usd"]) for point in history.json()["points"]] == [
+        Decimal("100"),
+        Decimal("300"),
+        Decimal("350"),
+    ]
 
 
 async def test_health_ok(client: AsyncClient):

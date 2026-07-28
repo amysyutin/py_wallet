@@ -281,6 +281,31 @@ def test_summarize_all_includes_token_usd(mock_chain, mock_price):
     assert ps.total_usd == 36000.0
 
 
+@patch(
+    f"{MODULE}.get_native_price_usd_cached",
+    side_effect=requests.RequestException("price unavailable"),
+)
+@patch(f"{MODULE}.summarize_chain")
+def test_summarize_all_marks_native_price_failure_as_partial(mock_chain, _mock_price):
+    from app.models import ChainSummary
+
+    mock_chain.return_value = ChainSummary(
+        chain="bnb",
+        native_symbol="BNB",
+        native_amount=2.0,
+        usdt_amount=10.0,
+        usdc_amount=5.0,
+    )
+
+    with patch(f"{MODULE}.CHAIN_RPC", {"bnb": "url"}):
+        summary = summarize_all("0xABC")
+
+    assert summary.total_usd == 15.0
+    assert summary.chains[0].status == "partial_success"
+    assert summary.chains[0].error_type == "native_price_unavailable"
+    assert summary.chains[0].error_message == "Native token price is unavailable"
+
+
 @patch(f"{MODULE}.get_native_price_usd_cached", return_value=0.0)
 @patch(f"{MODULE}.summarize_chain")
 def test_summarize_all_empty_chains(mock_chain, mock_price):

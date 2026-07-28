@@ -202,6 +202,10 @@ class Settings(BaseSettings):
             raise ValueError(
                 "TRUSTED_HOSTS cannot contain '*' in staging or production"
             )
+        if env in ("staging", "production") and not self.snapshot_schema_required:
+            raise ValueError(
+                "SNAPSHOT_SCHEMA_REQUIRED cannot be false in staging or production"
+            )
         return self
 
     @property

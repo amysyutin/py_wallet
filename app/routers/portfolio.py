@@ -7,6 +7,7 @@ from sqlalchemy import func, or_, select
 from app.db.models.snapshot import Snapshot
 from app.db.models.snapshot_service import SnapshotRun, WalletSnapshot
 from app.db.models.wallet import Wallet
+from app.db.models.wallet_group import WalletGroup
 from app.deps import CurrentUser, SessionDep
 from app.schemas.portfolio import (
     AssetShare,
@@ -45,6 +46,14 @@ async def _portfolio_history(
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Wallet not found")
         wallet_query = wallet_query.where(Wallet.id == wallet_id)
     elif group_id is not None:
+        owned_group = await session.scalar(
+            select(WalletGroup.id).where(
+                WalletGroup.id == group_id,
+                WalletGroup.user_id == current_user.id,
+            )
+        )
+        if owned_group is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Wallet group not found")
         wallet_query = wallet_query.where(
             Wallet.group_id == group_id,
             Wallet.is_active.is_(True),
@@ -68,24 +77,31 @@ async def _portfolio_history(
         wallets = canonical_wallets
 
     wallet_ids = [wallet.id for wallet in wallets]
+    if not wallet_ids:
+        return PortfolioHistory(
+            wallet_id=wallet_id,
+            group_id=group_id,
+            days=days,
+            points=[],
+        )
 
     since = datetime.now(timezone.utc) - timedelta(days=days)
-    snapshot_at = func.coalesce(SnapshotRun.finished_at, SnapshotRun.created_at)
     rows = list(
         await session.execute(
-            select(snapshot_at.label("snapshot_at"), WalletSnapshot.total_usd)
+            select(
+                WalletSnapshot.wallet_id,
+                SnapshotRun.created_at.label("snapshot_at"),
+                WalletSnapshot.total_usd,
+            )
             .join(SnapshotRun, SnapshotRun.id == WalletSnapshot.snapshot_run_id)
             .where(
                 WalletSnapshot.wallet_id.in_(wallet_ids),
                 WalletSnapshot.status.in_(SNAPSHOT_READ_STATUSES),
-                snapshot_at >= since,
+                SnapshotRun.created_at >= since,
             )
-            .order_by(snapshot_at)
+            .order_by(SnapshotRun.created_at, WalletSnapshot.id)
         )
     )
-    points = [
-        PortfolioPoint(snapshot_at=r.snapshot_at, total_usd=r.total_usd) for r in rows
-    ]
 
     new_wallet_ids = set(
         await session.scalars(
@@ -100,16 +116,93 @@ async def _portfolio_history(
     legacy_wallet_ids = [item for item in wallet_ids if item not in new_wallet_ids]
     if legacy_wallet_ids:
         legacy_rows = await session.execute(
-            select(Snapshot.snapshot_at, Snapshot.total_usd).where(
+            select(Snapshot.wallet_id, Snapshot.snapshot_at, Snapshot.total_usd)
+            .where(
                 Snapshot.wallet_id.in_(legacy_wallet_ids),
                 Snapshot.snapshot_at >= since,
             )
+            .order_by(Snapshot.snapshot_at, Snapshot.id)
         )
-        points.extend(
+        rows.extend(legacy_rows)
+
+    rows.sort(key=lambda row: (row.snapshot_at, row.wallet_id))
+    if wallet_id is not None:
+        points = [
             PortfolioPoint(snapshot_at=row.snapshot_at, total_usd=row.total_usd)
-            for row in legacy_rows
+            for row in rows
+        ]
+    else:
+        latest_before_rank = func.row_number().over(
+            partition_by=WalletSnapshot.wallet_id,
+            order_by=(SnapshotRun.created_at.desc(), WalletSnapshot.id.desc()),
         )
-        points.sort(key=lambda point: point.snapshot_at)
+        latest_before = (
+            select(
+                WalletSnapshot.wallet_id,
+                WalletSnapshot.total_usd,
+                latest_before_rank.label("snapshot_rank"),
+            )
+            .join(SnapshotRun, SnapshotRun.id == WalletSnapshot.snapshot_run_id)
+            .where(
+                WalletSnapshot.wallet_id.in_(new_wallet_ids),
+                WalletSnapshot.status.in_(SNAPSHOT_READ_STATUSES),
+                SnapshotRun.created_at < since,
+            )
+            .subquery()
+        )
+        balance_by_wallet = {
+            row.wallet_id: row.total_usd
+            for row in await session.execute(
+                select(latest_before.c.wallet_id, latest_before.c.total_usd).where(
+                    latest_before.c.snapshot_rank == 1
+                )
+            )
+        }
+
+        if legacy_wallet_ids:
+            legacy_before_rank = func.row_number().over(
+                partition_by=Snapshot.wallet_id,
+                order_by=(Snapshot.snapshot_at.desc(), Snapshot.id.desc()),
+            )
+            legacy_before = (
+                select(
+                    Snapshot.wallet_id,
+                    Snapshot.total_usd,
+                    legacy_before_rank.label("snapshot_rank"),
+                )
+                .where(
+                    Snapshot.wallet_id.in_(legacy_wallet_ids),
+                    Snapshot.snapshot_at < since,
+                )
+                .subquery()
+            )
+            balance_by_wallet.update(
+                {
+                    row.wallet_id: row.total_usd
+                    for row in await session.execute(
+                        select(
+                            legacy_before.c.wallet_id,
+                            legacy_before.c.total_usd,
+                        ).where(legacy_before.c.snapshot_rank == 1)
+                    )
+                }
+            )
+
+        points = []
+        row_index = 0
+        while row_index < len(rows):
+            snapshot_at = rows[row_index].snapshot_at
+            while row_index < len(rows) and rows[row_index].snapshot_at == snapshot_at:
+                row = rows[row_index]
+                balance_by_wallet[row.wallet_id] = row.total_usd
+                row_index += 1
+            points.append(
+                PortfolioPoint(
+                    snapshot_at=snapshot_at,
+                    total_usd=sum(balance_by_wallet.values(), Decimal("0")),
+                )
+            )
+
     return PortfolioHistory(
         wallet_id=wallet_id,
         group_id=group_id,
