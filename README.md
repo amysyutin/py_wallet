@@ -244,6 +244,8 @@ cp .env.example .env
 | `JWT_ALG` | No | JWT algorithm. Only `HS256` is allowed. Defaults to `HS256`. |
 | `ACCESS_TOKEN_TTL_MIN` | No | Access token lifetime in minutes. Defaults to `60`. |
 | `SNAPSHOT_SCHEMA_REQUIRED` | No | Require snapshot-service tables in `/health/ready`; defaults to `true`. It may be `false` only in development/test isolation and is rejected in staging/production. |
+| `PORTFOLIO_FRESH_SECONDS` | No | Maximum age in seconds classified as fresh in the portfolio data-health contract; defaults to `900`. |
+| `PORTFOLIO_STALE_SECONDS` | No | Age in seconds after which portfolio snapshot data is stale; defaults to `1800` and must be greater than `PORTFOLIO_FRESH_SECONDS`. |
 | `EVM1_ADDRESS` | For default `/assets` address | Default EVM wallet address. |
 | `RPC_URL_MAINNET` | For Mainnet aggregation | Comma-separated Ethereum Mainnet RPC URLs. |
 | `RPC_URL_BASE` | For Base aggregation | Comma-separated Base RPC URLs. |

@@ -190,3 +190,24 @@ def test_validation_error_omits_secret_value():
     with pytest.raises(ValidationError) as exc_info:
         _settings(APP_ENV="production", JWT_SECRET=secret)
     assert secret not in str(exc_info.value)
+
+
+def test_portfolio_health_thresholds_must_not_overlap():
+    with pytest.raises(ValidationError):
+        _settings(
+            APP_ENV="test",
+            JWT_SECRET=None,
+            portfolio_fresh_seconds=1800,
+            portfolio_stale_seconds=1800,
+        )
+
+
+def test_portfolio_health_thresholds_are_configurable():
+    settings = _settings(
+        APP_ENV="test",
+        JWT_SECRET=None,
+        portfolio_fresh_seconds=600,
+        portfolio_stale_seconds=1200,
+    )
+    assert settings.portfolio_fresh_seconds == 600
+    assert settings.portfolio_stale_seconds == 1200
