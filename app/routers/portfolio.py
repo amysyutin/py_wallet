@@ -6,7 +6,12 @@ from sqlalchemy import func, or_, select
 
 from app.db.models.snapshot import Snapshot
 from app.core.config import get_settings
-from app.db.models.snapshot_service import ChainSnapshot, SnapshotRun, WalletSnapshot
+from app.db.models.snapshot_service import (
+    ChainSnapshot,
+    SnapshotBalanceSnapshot,
+    SnapshotRun,
+    WalletSnapshot,
+)
 from app.db.models.wallet import Wallet
 from app.db.models.wallet_group import WalletGroup
 from app.deps import CurrentUser, SessionDep
@@ -16,6 +21,7 @@ from app.schemas.portfolio import (
     PortfolioDataHealth,
     PortfolioHistory,
     PortfolioPoint,
+    PortfolioPriceQuality,
     PortfolioSummary,
 )
 from app.services.wallet_view import build_wallet_balance_info
@@ -23,6 +29,8 @@ from app.services.wallet_view import build_wallet_balance_info
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 SNAPSHOT_READ_STATUSES = ("success", "partial_success")
 ACTIVE_SNAPSHOT_STATUSES = ("pending", "running")
+KNOWN_PRICE_SOURCES = frozenset({"coingecko", "manual", "static_dev"})
+PRICE_SOURCE_ORDER = ("coingecko", "manual", "static_dev", "unknown")
 
 
 def _portfolio_freshness(
@@ -41,6 +49,40 @@ def _portfolio_freshness(
     if age_seconds <= stale_seconds:
         return "aging"
     return "stale"
+
+
+def _portfolio_price_quality(
+    observations: list[tuple[Decimal, Decimal | None, str | None]],
+) -> PortfolioPriceQuality:
+    relevant = [
+        (amount, price_usd, source)
+        for amount, price_usd, source in observations
+        if amount != Decimal("0")
+    ]
+    sources = {
+        source if source in KNOWN_PRICE_SOURCES else "unknown"
+        for _, _, source in relevant
+    }
+    assets_priced = sum(price_usd is not None for _, price_usd, _ in relevant)
+    assets_total = len(relevant)
+
+    if assets_total == 0:
+        quality_state = "unknown"
+    elif assets_priced < assets_total:
+        quality_state = "incomplete"
+    elif "static_dev" in sources:
+        quality_state = "estimated"
+    elif "unknown" in sources:
+        quality_state = "unknown"
+    else:
+        quality_state = "complete"
+
+    return PortfolioPriceQuality(
+        state=quality_state,
+        sources=[source for source in PRICE_SOURCE_ORDER if source in sources],
+        assets_priced=assets_priced,
+        assets_total=assets_total,
+    )
 
 
 async def _portfolio_history(
@@ -390,13 +432,41 @@ async def portfolio_summary(
         for row in issue_rows
     ]
 
+    price_observations: list[tuple[Decimal, Decimal | None, str | None]] = []
+    if latest_snapshot_ids:
+        price_rows = await session.execute(
+            select(
+                SnapshotBalanceSnapshot.amount,
+                SnapshotBalanceSnapshot.price_usd,
+                SnapshotBalanceSnapshot.price_source,
+            )
+            .join(
+                ChainSnapshot,
+                ChainSnapshot.id == SnapshotBalanceSnapshot.chain_snapshot_id,
+            )
+            .where(ChainSnapshot.wallet_snapshot_id.in_(latest_snapshot_ids))
+        )
+        price_observations.extend(
+            (row.amount, row.price_usd, row.price_source) for row in price_rows
+        )
+
+    for wallet in wallets:
+        info = balance_info[wallet.id]
+        if info.wallet_snapshot_id is not None:
+            continue
+        source = "manual" if info.balance_source == "manual" else None
+        price_observations.extend(
+            (asset.amount, asset.price_usd, source) for asset in info.assets
+        )
+    price_quality = _portfolio_price_quality(price_observations)
+
     settings = get_settings()
     freshness = _portfolio_freshness(
         as_of,
         fresh_seconds=settings.portfolio_fresh_seconds,
         stale_seconds=settings.portfolio_stale_seconds,
     )
-    if chain_issues:
+    if chain_issues or price_quality.state in {"estimated", "incomplete"}:
         health_state = "partial"
     elif refresh_in_progress:
         health_state = "updating"
@@ -444,5 +514,6 @@ async def portfolio_summary(
             missing_wallets=missing_wallets,
             refresh_in_progress=refresh_in_progress,
             chain_issues=chain_issues,
+            price_quality=price_quality,
         ),
     )

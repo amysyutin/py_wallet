@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.snapshot_service import (
     ChainSnapshot,
+    SnapshotBalanceSnapshot,
     SnapshotRun,
     WalletSnapshot,
 )
@@ -35,6 +36,9 @@ async def _add_wallet_snapshot(
     chain_status: str = "success",
     error_type: str | None = None,
     error_message: str | None = None,
+    asset_amount: Decimal | None = None,
+    price_usd: Decimal | None = None,
+    price_source: str | None = None,
 ) -> None:
     run = SnapshotRun(
         user_id=wallet.user_id,
@@ -55,17 +59,28 @@ async def _add_wallet_snapshot(
     )
     session.add(wallet_snapshot)
     await session.flush()
-    session.add(
-        ChainSnapshot(
-            wallet_snapshot_id=wallet_snapshot.id,
-            chain="base",
-            status=chain_status,
-            total_usd=Decimal("42"),
-            error_type=error_type,
-            error_message=error_message,
-        )
+    chain_snapshot = ChainSnapshot(
+        wallet_snapshot_id=wallet_snapshot.id,
+        chain="base",
+        status=chain_status,
+        total_usd=Decimal("42"),
+        error_type=error_type,
+        error_message=error_message,
     )
+    session.add(chain_snapshot)
     await session.flush()
+    if asset_amount is not None:
+        session.add(
+            SnapshotBalanceSnapshot(
+                chain_snapshot_id=chain_snapshot.id,
+                asset_symbol="ETH",
+                amount=asset_amount,
+                price_usd=price_usd,
+                value_usd=asset_amount * (price_usd or Decimal("0")),
+                price_source=price_source,
+            )
+        )
+        await session.flush()
 
 
 async def test_portfolio_health_exposes_partial_coverage_without_provider_details(
@@ -208,3 +223,67 @@ async def test_portfolio_health_counts_manual_sources(
     assert health["wallets_covered"] == 1
     assert health["manual_wallets"] == 1
     assert health["snapshot_wallets"] == 0
+    assert health["price_quality"] == {
+        "state": "complete",
+        "sources": ["manual"],
+        "assets_priced": 1,
+        "assets_total": 1,
+    }
+
+
+async def test_portfolio_health_marks_static_dev_price_as_estimated(
+    client: AsyncClient,
+    auth_headers: dict,
+    db_session: AsyncSession,
+):
+    wallet_id = await _create_evm_wallet(client, auth_headers, 105)
+    wallet = await db_session.get(Wallet, wallet_id)
+    assert wallet is not None
+    await _add_wallet_snapshot(
+        db_session,
+        wallet,
+        finished_at=datetime.now(timezone.utc) - timedelta(minutes=2),
+        asset_amount=Decimal("1"),
+        price_usd=Decimal("42"),
+        price_source="static_dev",
+    )
+
+    response = await client.get("/portfolio/summary", headers=auth_headers)
+
+    assert response.status_code == 200
+    health = response.json()["data_health"]
+    assert health["state"] == "partial"
+    assert health["price_quality"] == {
+        "state": "estimated",
+        "sources": ["static_dev"],
+        "assets_priced": 1,
+        "assets_total": 1,
+    }
+
+
+async def test_portfolio_health_marks_missing_market_price_as_incomplete(
+    client: AsyncClient,
+    auth_headers: dict,
+    db_session: AsyncSession,
+):
+    wallet_id = await _create_evm_wallet(client, auth_headers, 106)
+    wallet = await db_session.get(Wallet, wallet_id)
+    assert wallet is not None
+    await _add_wallet_snapshot(
+        db_session,
+        wallet,
+        finished_at=datetime.now(timezone.utc) - timedelta(minutes=2),
+        asset_amount=Decimal("2"),
+    )
+
+    response = await client.get("/portfolio/summary", headers=auth_headers)
+
+    assert response.status_code == 200
+    health = response.json()["data_health"]
+    assert health["state"] == "partial"
+    assert health["price_quality"] == {
+        "state": "incomplete",
+        "sources": ["unknown"],
+        "assets_priced": 0,
+        "assets_total": 1,
+    }
