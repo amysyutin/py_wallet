@@ -7,7 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.config import CHAIN_RPC
 
-SUPPORTED_CHAINS = set(CHAIN_RPC)
+EVM_AGGREGATE_CHAIN = "all"
+SUPPORTED_CHAINS = set(CHAIN_RPC) | {EVM_AGGREGATE_CHAIN}
 _EVM_ADDRESS_RE = re.compile(r"^0[xX][a-fA-F0-9]{40}$")
 
 
@@ -45,7 +46,11 @@ class WalletCreate(BaseModel):
     label: str = Field(min_length=1, max_length=100)
     wallet_type: Literal["evm", "manual"] = "evm"
     address: str | None = Field(default=None, max_length=42)
-    chain_type: str = Field(min_length=1, max_length=32)
+    chain_type: str = Field(
+        default=EVM_AGGREGATE_CHAIN,
+        min_length=1,
+        max_length=32,
+    )
     group_id: int | None = None
     notes: str | None = Field(default=None, max_length=500)
 
