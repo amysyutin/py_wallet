@@ -30,6 +30,13 @@ class PortfolioChainIssue(BaseModel):
     wallets_count: int
 
 
+class PortfolioPriceQuality(BaseModel):
+    state: Literal["complete", "estimated", "incomplete", "unknown"]
+    sources: list[Literal["coingecko", "manual", "static_dev", "unknown"]]
+    assets_priced: int
+    assets_total: int
+
+
 class PortfolioDataHealth(BaseModel):
     state: Literal["fresh", "updating", "partial", "stale"]
     freshness: Literal["fresh", "aging", "stale", "unknown"]
@@ -41,6 +48,7 @@ class PortfolioDataHealth(BaseModel):
     missing_wallets: int
     refresh_in_progress: bool
     chain_issues: list[PortfolioChainIssue]
+    price_quality: PortfolioPriceQuality
 
 
 class PortfolioSummary(BaseModel):
