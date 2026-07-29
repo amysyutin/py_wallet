@@ -87,7 +87,7 @@ Authenticated endpoints require `Authorization: Bearer <token>`:
 | `GET` | `/wallet-groups/{id}` | Get a wallet group by ID. |
 | `PATCH` | `/wallet-groups/{id}` | Update a wallet group. |
 | `DELETE` | `/wallet-groups/{id}` | Delete a wallet group (wallets keep `group_id = NULL`). |
-| `POST` | `/wallets` | Add a wallet (`wallet_type`: `evm` or `manual`; EVM requires `address` + supported `chain_type`; manual requires `chain_type=manual`, no address). |
+| `POST` | `/wallets` | Add a wallet (`wallet_type`: `evm` or `manual`; EVM requires only `address` and defaults to `chain_type=all`; manual requires `chain_type=manual`, no address). |
 | `GET` | `/wallets` | List active wallets (`?active_only=false` for all). |
 | `GET` | `/wallets/{id}` | Get a wallet by ID. |
 | `GET` | `/wallets/{id}/assets` | Latest persisted EVM portfolio, with a guarded live fallback when no current snapshot exists. |
@@ -103,9 +103,11 @@ Authenticated endpoints require `Authorization: Bearer <token>`:
 | `GET` | `/portfolio/history?group_id=<id>&days=30` | Return an aggregated group history; without `wallet_id` or `group_id`, aggregate all active wallets. |
 | `GET` | `/portfolio/summary` | Return total USD value and top assets from the latest wallet snapshots. |
 
-Supported `chain_type` values for EVM wallets are `mainnet`, `base`, `bnb`,
-`arbitrum`, and `linea`. Manual wallets use `chain_type=manual`. Snapshot
-collection currently supports EVM wallets only.
+New EVM wallets use `chain_type=all`: every snapshot checks the address across
+all EVM networks enabled in the snapshot service. Legacy per-network values
+(`mainnet`, `base`, `bnb`, `arbitrum`, and `linea`) remain accepted for API
+compatibility but do not limit snapshot collection. Manual wallets use
+`chain_type=manual`.
 
 Release metadata can be supplied with `APP_VERSION` (defaults to `0.2.0`) and
 `BUILD_SHA` (defaults to `unknown`). These non-sensitive values are returned by
@@ -145,8 +147,9 @@ User IDs, wallet IDs, addresses, job IDs, RPC URLs, and error messages are never
 exported as Prometheus labels.
 
 For existing EVM wallets, `PATCH /wallets/{id}` accepts `chain_type` and
-`address` (together or separately). `wallet_type` cannot be changed after
-creation; manual wallets cannot switch to an on-chain network.
+`address` (together or separately). The UI always saves EVM wallets with
+`chain_type=all`. `wallet_type` cannot be changed after creation; manual wallets
+cannot switch to an on-chain network.
 
 `GET /wallets/{id}/assets` returns the latest readable snapshot for the current
 wallet state. If no snapshot exists after the wallet's most recent update, it
@@ -170,11 +173,11 @@ in `total_usd` instead of presenting the chain as fully valued.
 curl http://localhost:8000/wallets/1/assets \
   -H "Authorization: Bearer $TOKEN"
 
-# Change network and address on an EVM wallet
+# Change the address on an EVM wallet (all enabled networks are scanned)
 curl -X PATCH http://localhost:8000/wallets/1 \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"chain_type":"base","address":"0x..."}'
+  -d '{"chain_type":"all","address":"0x..."}'
 ```
 
 ### Manual wallet example

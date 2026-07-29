@@ -62,12 +62,12 @@ async def test_create_wallet_defaults(client: AsyncClient, auth_headers: dict):
         json={
             "label": "Basic",
             "address": "0x0000000000000000000000000000000000000002",
-            "chain_type": "mainnet",
         },
     )
     assert r.status_code == 201
     data = r.json()
     assert data["wallet_type"] == "evm"
+    assert data["chain_type"] == "all"
     assert data["is_active"] is True
     assert data["group_id"] is None
 
