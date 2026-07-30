@@ -147,7 +147,9 @@ async def test_allocation_filters_groups_and_exposes_other(
         other_wallet,
         observed_at=observed_at,
         total_usd=Decimal("999"),
-        assets=[("OUTSIDE", "0xffffffffffffffffffffffffffffffffffffffff", Decimal("999"))],
+        assets=[
+            ("OUTSIDE", "0xffffffffffffffffffffffffffffffffffffffff", Decimal("999"))
+        ],
     )
 
     response = await client.get(

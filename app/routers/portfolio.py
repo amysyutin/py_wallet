@@ -188,9 +188,7 @@ async def _allocation_for_wallets(
         price_usd: Decimal | None,
         price_source: str | None,
     ) -> None:
-        existing_symbol, existing_value = asset_totals.get(
-            key, (symbol, Decimal("0"))
-        )
+        existing_symbol, existing_value = asset_totals.get(key, (symbol, Decimal("0")))
         asset_totals[key] = (existing_symbol, existing_value + value_usd)
         observations.append((amount, price_usd, price_source))
 
@@ -349,9 +347,7 @@ async def _portfolio_change_24h(
         start_times: list[datetime] | None = None,
         end_times: list[datetime] | None = None,
     ) -> PortfolioValueChange24h:
-        absolute = (
-            current_total - start_usd if start_usd is not None else None
-        )
+        absolute = current_total - start_usd if start_usd is not None else None
         percent = (
             round(float(absolute / start_usd * 100), 2)
             if absolute is not None and start_usd != Decimal("0")
@@ -375,9 +371,7 @@ async def _portfolio_change_24h(
     if not wallets:
         return result("unavailable", ["no_wallets"])
 
-    current_ids = [
-        balance_info[wallet.id].wallet_snapshot_id for wallet in wallets
-    ]
+    current_ids = [balance_info[wallet.id].wallet_snapshot_id for wallet in wallets]
     if any(snapshot_id is None for snapshot_id in current_ids):
         return result("unavailable", ["current_source_has_no_historical_counterpart"])
 
@@ -476,10 +470,7 @@ async def _portfolio_change_24h(
         .where(ChainSnapshot.wallet_snapshot_id.in_(baseline_ids))
     )
     baseline_quality = _portfolio_price_quality(
-        [
-            (row.amount, row.price_usd, row.price_source)
-            for row in baseline_price_rows
-        ]
+        [(row.amount, row.price_usd, row.price_source) for row in baseline_price_rows]
     )
     start_times = [_aware(row.observed_at) for row in baseline_rows]
     baseline_reasons = []
