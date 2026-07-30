@@ -364,3 +364,10 @@ async def test_summary_ignores_snapshots_from_previous_address_revision(
     assert Decimal(body["total_usd"]) == Decimal("0")
     assert body["data_health"]["missing_wallets"] == 1
     assert body["change_24h"]["status"] == "unavailable"
+
+    history = await client.get("/portfolio/history?days=30", headers=auth_headers)
+
+    assert history.status_code == 200
+    assert [Decimal(point["total_usd"]) for point in history.json()["points"]] == [
+        Decimal("500")
+    ]
