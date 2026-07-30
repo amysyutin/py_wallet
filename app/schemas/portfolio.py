@@ -23,6 +23,35 @@ class AssetShare(BaseModel):
     share_pct: float
 
 
+class AllocationAssetShare(AssetShare):
+    asset_key: str
+
+
+class PortfolioAllScope(BaseModel):
+    mode: Literal["all"]
+
+
+class PortfolioSelectionScope(BaseModel):
+    mode: Literal["selection"]
+    group_ids: list[int]
+    include_ungrouped: bool
+
+
+class PortfolioAllocationQuality(BaseModel):
+    state: Literal["complete", "estimated", "incomplete", "unknown", "empty"]
+    sources: list[Literal["coingecko", "manual", "static_dev", "unknown"]]
+    assets_priced: int
+    assets_total: int
+
+
+class PortfolioAllocation(BaseModel):
+    scope: PortfolioAllScope | PortfolioSelectionScope
+    wallets_count: int
+    total_usd: Decimal
+    items: list[AllocationAssetShare]
+    data_quality: PortfolioAllocationQuality
+
+
 class PortfolioChainIssue(BaseModel):
     chain: str
     status: str
@@ -51,6 +80,22 @@ class PortfolioDataHealth(BaseModel):
     price_quality: PortfolioPriceQuality
 
 
+class PortfolioValueChange24h(BaseModel):
+    status: Literal["complete", "incomplete", "unavailable"]
+    kind: Literal["value_change"] = "value_change"
+    start_usd: Decimal | None = None
+    end_usd: Decimal | None = None
+    absolute_usd: Decimal | None = None
+    percent: float | None = None
+    reference_at: datetime
+    cutoff_at: datetime
+    start_observed_from: datetime | None = None
+    start_observed_to: datetime | None = None
+    end_observed_from: datetime | None = None
+    end_observed_to: datetime | None = None
+    reason_codes: list[str]
+
+
 class PortfolioSummary(BaseModel):
     total_usd: Decimal
     wallets_count: int
@@ -58,3 +103,4 @@ class PortfolioSummary(BaseModel):
     last_snapshot_at: datetime | None = None
     top_assets: list[AssetShare]
     data_health: PortfolioDataHealth
+    change_24h: PortfolioValueChange24h
