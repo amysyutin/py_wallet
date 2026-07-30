@@ -583,12 +583,10 @@ async def _portfolio_history(
                 WalletSnapshot.total_usd,
             )
             .join(SnapshotRun, SnapshotRun.id == WalletSnapshot.snapshot_run_id)
-            .join(Wallet, Wallet.id == WalletSnapshot.wallet_id)
             .where(
                 WalletSnapshot.wallet_id.in_(wallet_ids),
                 WalletSnapshot.status.in_(HISTORY_READ_STATUSES),
                 observed_at >= since,
-                SnapshotRun.created_at >= Wallet.address_updated_at,
             )
             .order_by(observed_at, WalletSnapshot.id)
         )
@@ -600,11 +598,9 @@ async def _portfolio_history(
             func.min(observed_at).label("first_snapshot_at"),
         )
         .join(SnapshotRun, SnapshotRun.id == WalletSnapshot.snapshot_run_id)
-        .join(Wallet, Wallet.id == WalletSnapshot.wallet_id)
         .where(
             WalletSnapshot.wallet_id.in_(wallet_ids),
             WalletSnapshot.status.in_(HISTORY_READ_STATUSES),
-            SnapshotRun.created_at >= Wallet.address_updated_at,
         )
         .group_by(WalletSnapshot.wallet_id)
     )
@@ -613,11 +609,9 @@ async def _portfolio_history(
     }
     legacy_rows = await session.execute(
         select(Snapshot.wallet_id, Snapshot.snapshot_at, Snapshot.total_usd)
-        .join(Wallet, Wallet.id == Snapshot.wallet_id)
         .where(
             Snapshot.wallet_id.in_(wallet_ids),
             Snapshot.snapshot_at >= since,
-            Snapshot.snapshot_at >= Wallet.address_updated_at,
         )
         .order_by(Snapshot.snapshot_at, Snapshot.id)
     )
@@ -647,12 +641,10 @@ async def _portfolio_history(
                 latest_before_rank.label("snapshot_rank"),
             )
             .join(SnapshotRun, SnapshotRun.id == WalletSnapshot.snapshot_run_id)
-            .join(Wallet, Wallet.id == WalletSnapshot.wallet_id)
             .where(
                 WalletSnapshot.wallet_id.in_(wallet_ids),
                 WalletSnapshot.status.in_(HISTORY_READ_STATUSES),
                 observed_at < since,
-                SnapshotRun.created_at >= Wallet.address_updated_at,
             )
             .subquery()
         )
@@ -668,11 +660,9 @@ async def _portfolio_history(
         }
         legacy_before_rows = await session.execute(
             select(Snapshot.wallet_id, Snapshot.snapshot_at, Snapshot.total_usd)
-            .join(Wallet, Wallet.id == Snapshot.wallet_id)
             .where(
                 Snapshot.wallet_id.in_(wallet_ids),
                 Snapshot.snapshot_at < since,
-                Snapshot.snapshot_at >= Wallet.address_updated_at,
             )
             .order_by(Snapshot.snapshot_at.desc(), Snapshot.id.desc())
         )
