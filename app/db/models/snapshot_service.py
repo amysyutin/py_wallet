@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Numeric, String, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -59,9 +59,13 @@ class WalletSnapshot(Base):
     wallet_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("wallets.id", ondelete="CASCADE"), index=True
     )
+    group_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
     wallet_type: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
-    total_usd: Mapped[Decimal] = mapped_column(Numeric(20, 8), default=0)
+    total_usd: Mapped[Decimal] = mapped_column(Numeric(38, 18), default=0)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_message: Mapped[str | None] = mapped_column(Text)
 
     snapshot_run: Mapped[SnapshotRun] = relationship(back_populates="wallet_snapshots")
     chain_snapshots: Mapped[list[ChainSnapshot]] = relationship(
@@ -79,11 +83,15 @@ class ChainSnapshot(Base):
     wallet_snapshot_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("wallet_snapshots.id", ondelete="CASCADE")
     )
-    chain: Mapped[str] = mapped_column(String(32), nullable=False)
+    chain: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
-    total_usd: Mapped[Decimal] = mapped_column(Numeric(20, 8), default=0)
+    native_balance: Mapped[Decimal | None] = mapped_column(Numeric(38, 18))
+    total_usd: Mapped[Decimal] = mapped_column(Numeric(38, 18), default=0)
+    rpc_latency_ms: Mapped[int | None]
     error_type: Mapped[str | None] = mapped_column(String(64))
-    error_message: Mapped[str | None] = mapped_column(String(1000))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     wallet_snapshot: Mapped[WalletSnapshot] = relationship(
         back_populates="chain_snapshots"
@@ -104,9 +112,11 @@ class SnapshotBalanceSnapshot(Base):
         BigInteger, ForeignKey("chain_snapshots.id", ondelete="CASCADE")
     )
     asset_symbol: Mapped[str] = mapped_column(String(32), nullable=False)
+    asset_address: Mapped[str | None] = mapped_column(String(255))
+    asset_type: Mapped[str] = mapped_column(String(32), default="unknown")
     amount: Mapped[Decimal] = mapped_column(Numeric(38, 18), default=0)
-    price_usd: Mapped[Decimal | None] = mapped_column(Numeric(20, 8))
-    value_usd: Mapped[Decimal] = mapped_column(Numeric(20, 8), default=0)
+    price_usd: Mapped[Decimal | None] = mapped_column(Numeric(38, 18))
+    value_usd: Mapped[Decimal] = mapped_column(Numeric(38, 18), default=0)
     price_source: Mapped[str | None] = mapped_column(String(64))
 
     chain_snapshot: Mapped[ChainSnapshot] = relationship(

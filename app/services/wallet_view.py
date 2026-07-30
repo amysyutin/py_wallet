@@ -54,6 +54,7 @@ class _WalletBalanceInfo:
     top_assets: list[WalletTopAsset] = field(default_factory=list)
     assets: list[WalletAssetDetail] = field(default_factory=list)
     wallet_snapshot_id: int | None = None
+    legacy_snapshot_id: int | None = None
 
 
 def _manual_value(amount: Decimal, price_usd: Decimal | None) -> Decimal:
@@ -61,9 +62,10 @@ def _manual_value(amount: Decimal, price_usd: Decimal | None) -> Decimal:
 
 
 async def _latest_wallet_snapshot_ids(
-    session: AsyncSession, wallet_ids: list[int]
+    session: AsyncSession, wallets: list[Wallet]
 ) -> dict[int, int]:
     """Return wallet_id -> newest-started readable WalletSnapshot.id."""
+    wallet_ids = [wallet.id for wallet in wallets]
     if not wallet_ids:
         return {}
     snapshot_rank = func.row_number().over(
@@ -77,9 +79,11 @@ async def _latest_wallet_snapshot_ids(
             snapshot_rank.label("snapshot_rank"),
         )
         .join(SnapshotRun, SnapshotRun.id == WalletSnapshot.snapshot_run_id)
+        .join(Wallet, Wallet.id == WalletSnapshot.wallet_id)
         .where(
             WalletSnapshot.wallet_id.in_(wallet_ids),
             WalletSnapshot.status.in_(SNAPSHOT_READ_STATUSES),
+            SnapshotRun.created_at >= Wallet.address_updated_at,
         )
         .subquery()
     )
@@ -134,7 +138,11 @@ async def _load_snapshot_meta(
     """wallet_snapshot_id -> (total_usd, snapshot_at)."""
     if not snapshot_ids:
         return {}
-    snapshot_at = func.coalesce(SnapshotRun.finished_at, SnapshotRun.created_at)
+    snapshot_at = func.coalesce(
+        WalletSnapshot.finished_at,
+        SnapshotRun.finished_at,
+        SnapshotRun.created_at,
+    )
     rows = await session.execute(
         select(
             WalletSnapshot.id,
@@ -148,9 +156,10 @@ async def _load_snapshot_meta(
 
 
 async def _latest_legacy_snapshots(
-    session: AsyncSession, wallet_ids: list[int]
+    session: AsyncSession, wallets: list[Wallet]
 ) -> dict[int, tuple[int, Decimal, datetime]]:
     """Return the most recent legacy snapshot for each requested wallet."""
+    wallet_ids = [wallet.id for wallet in wallets]
     if not wallet_ids:
         return {}
 
@@ -166,7 +175,11 @@ async def _latest_legacy_snapshots(
             Snapshot.snapshot_at,
             snapshot_rank.label("snapshot_rank"),
         )
-        .where(Snapshot.wallet_id.in_(wallet_ids))
+        .join(Wallet, Wallet.id == Snapshot.wallet_id)
+        .where(
+            Snapshot.wallet_id.in_(wallet_ids),
+            Snapshot.snapshot_at >= Wallet.address_updated_at,
+        )
         .subquery()
     )
     rows = await session.execute(
@@ -403,13 +416,12 @@ async def build_latest_wallet_assets_summary(
 async def build_wallet_balance_info(
     session: AsyncSession, wallets: list[Wallet]
 ) -> dict[int, _WalletBalanceInfo]:
-    wallet_ids = [w.id for w in wallets]
-    latest_by_wallet = await _latest_wallet_snapshot_ids(session, wallet_ids)
+    latest_by_wallet = await _latest_wallet_snapshot_ids(session, wallets)
     snapshot_ids = list(latest_by_wallet.values())
     snapshot_meta = await _load_snapshot_meta(session, snapshot_ids)
     snapshot_assets = await _load_snapshot_assets(session, snapshot_ids)
 
-    needs_legacy = [w.id for w in wallets if w.id not in latest_by_wallet]
+    needs_legacy = [w for w in wallets if w.id not in latest_by_wallet]
     legacy_by_wallet = await _latest_legacy_snapshots(session, needs_legacy)
     legacy_assets = await _load_legacy_snapshot_assets(
         session, [snapshot[0] for snapshot in legacy_by_wallet.values()]
@@ -451,6 +463,7 @@ async def build_wallet_balance_info(
             info.balances_count = len(items)
             info.top_assets = _top_assets_from_agg(agg)
             info.assets = _detail_assets_from_items(items)
+            info.legacy_snapshot_id = legacy_snapshot_id
         elif wallet.wallet_type == "manual":
             items = manual_assets.get(wallet.id, [])
             if items:
@@ -530,7 +543,11 @@ async def list_wallet_snapshots(
     *,
     limit: int = 30,
 ) -> list[WalletSnapshotRead]:
-    snapshot_at = func.coalesce(SnapshotRun.finished_at, SnapshotRun.created_at)
+    snapshot_at = func.coalesce(
+        WalletSnapshot.finished_at,
+        SnapshotRun.finished_at,
+        SnapshotRun.created_at,
+    )
     rows = await session.execute(
         select(
             WalletSnapshot.id,

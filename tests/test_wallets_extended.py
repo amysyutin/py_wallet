@@ -1270,6 +1270,10 @@ async def test_wallet_list_and_detail_fall_back_to_latest_legacy_snapshot(
     await db_session.flush()
 
     now = datetime.now(timezone.utc)
+    persisted_wallet = await db_session.get(Wallet, wallet["id"])
+    assert persisted_wallet is not None
+    persisted_wallet.address_updated_at = now - timedelta(hours=2)
+    await db_session.flush()
     old_snapshot = Snapshot(
         wallet_id=wallet["id"],
         snapshot_at=now - timedelta(hours=1),

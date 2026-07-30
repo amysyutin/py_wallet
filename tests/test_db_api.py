@@ -395,6 +395,9 @@ async def test_group_portfolio_history_aggregates_wallet_values_over_time(
     assert first_wallet is not None
     assert second_wallet is not None
     now = datetime.now(timezone.utc)
+    first_wallet.address_updated_at = now - timedelta(minutes=10)
+    second_wallet.address_updated_at = now - timedelta(minutes=10)
+    await db_session.flush()
     runs = [
         SnapshotRun(
             user_id=first_wallet.user_id,
