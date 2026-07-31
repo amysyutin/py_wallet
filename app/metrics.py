@@ -42,6 +42,11 @@ REGISTRATION_COMPLETED = Counter(
     "New user registrations committed successfully.",
     ("channel",),
 )
+MANUAL_REFRESH = Counter(
+    "py_wallet_manual_refresh_total",
+    "User-requested snapshot refreshes by channel, scope and request outcome.",
+    ("channel", "scope", "outcome"),
+)
 
 SNAPSHOT_SCHEDULER_LAST_TICK = Gauge(
     "py_wallet_snapshot_scheduler_last_tick_timestamp_seconds",

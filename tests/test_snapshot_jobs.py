@@ -9,6 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.snapshot_service import SnapshotRun
 from app.db.models.wallet import Wallet
 from app.services.snapshot_jobs import SnapshotJobResult
+from app.metrics import MANUAL_REFRESH
+
+
+def _counter_value(metric, **labels: str) -> float:
+    return metric.labels(**labels)._value.get()
 
 
 async def _register_and_login(client: AsyncClient, email: str) -> dict[str, str]:
@@ -40,6 +45,57 @@ async def test_post_snapshots_all_scope(
     assert mock_create_job.call_args.kwargs["scope_type"] == "all"
     assert mock_create_job.call_args.kwargs["wallet_id"] is None
     assert mock_create_job.call_args.kwargs["group_id"] is None
+
+
+@patch(
+    "app.routers.snapshots.create_snapshot_job",
+    return_value=SnapshotJobResult(job_id=305, status="running", reused=True),
+)
+async def test_post_snapshots_reuses_active_job_and_records_bounded_channel(
+    _mock_create_job, client: AsyncClient, auth_headers: dict
+):
+    labels = {
+        "channel": "telegram",
+        "scope": "all",
+        "outcome": "already_running",
+    }
+    before = _counter_value(MANUAL_REFRESH, **labels)
+
+    response = await client.post(
+        "/snapshots",
+        headers={**auth_headers, "X-Client-Channel": "telegram"},
+        json={"scope_type": "all"},
+    )
+
+    assert response.status_code == 202
+    assert response.json() == {
+        "job_id": 305,
+        "status": "running",
+        "reused": True,
+    }
+    assert _counter_value(MANUAL_REFRESH, **labels) == before + 1
+
+
+@patch("app.routers.snapshots.create_snapshot_job")
+async def test_post_snapshots_refresh_metric_does_not_use_unbounded_channel(
+    mock_create_job, client: AsyncClient, auth_headers: dict
+):
+    from app.services.snapshot_jobs import SnapshotServiceError
+
+    mock_create_job.side_effect = SnapshotServiceError(
+        502, "Snapshot service is unavailable"
+    )
+    labels = {"channel": "web", "scope": "all", "outcome": "unavailable"}
+    before = _counter_value(MANUAL_REFRESH, **labels)
+
+    response = await client.post(
+        "/snapshots",
+        headers={**auth_headers, "X-Client-Channel": "user-123"},
+        json={"scope_type": "all"},
+    )
+
+    assert response.status_code == 502
+    assert _counter_value(MANUAL_REFRESH, **labels) == before + 1
 
 
 @patch(
