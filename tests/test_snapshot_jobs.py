@@ -6,10 +6,10 @@ from unittest.mock import patch
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.snapshot_service import SnapshotRun
+from app.db.models.snapshot_service import ChainSnapshot, SnapshotRun, WalletSnapshot
 from app.db.models.wallet import Wallet
+from app.metrics import FAILED_CHAIN_RETRY, MANUAL_REFRESH
 from app.services.snapshot_jobs import SnapshotJobResult
-from app.metrics import MANUAL_REFRESH
 
 
 def _counter_value(metric, **labels: str) -> float:
@@ -357,3 +357,92 @@ async def test_snapshot_jobs_other_user_404(
 
     r = await client.get(f"/snapshot-jobs/{run.id}", headers=h2)
     assert r.status_code == 404
+
+
+@patch(
+    "app.routers.snapshot_jobs.retry_failed_snapshot_job",
+    return_value=SnapshotJobResult(job_id=402, status="pending"),
+)
+async def test_retry_failed_chains_is_owner_safe_and_returns_summary(
+    mock_retry,
+    client: AsyncClient,
+    db_session: AsyncSession,
+):
+    owner_headers = await _register_and_login(client, "retry-owner@example.com")
+    other_headers = await _register_and_login(client, "retry-other@example.com")
+    owner_wallet = (
+        await client.post(
+            "/wallets",
+            headers=owner_headers,
+            json={
+                "label": "Retry wallet",
+                "address": "0x00000000000000000000000000000000000000f2",
+                "chain_type": "mainnet",
+            },
+        )
+    ).json()
+    wallet = await db_session.get(Wallet, owner_wallet["id"])
+    assert wallet is not None
+    run = SnapshotRun(
+        user_id=wallet.user_id,
+        wallet_id=None,
+        trigger_type="manual",
+        scope_type="all",
+        status="partial_success",
+        finished_at=datetime.now(timezone.utc),
+    )
+    db_session.add(run)
+    await db_session.flush()
+    wallet_snapshot = WalletSnapshot(
+        snapshot_run_id=run.id,
+        wallet_id=wallet.id,
+        wallet_type="evm",
+        status="partial_success",
+        total_usd=0,
+    )
+    db_session.add(wallet_snapshot)
+    await db_session.flush()
+    db_session.add_all(
+        [
+            ChainSnapshot(
+                wallet_snapshot_id=wallet_snapshot.id,
+                chain="mainnet",
+                status="failed",
+                total_usd=0,
+                error_type="timeout",
+                error_message="provider secret",
+            ),
+            ChainSnapshot(
+                wallet_snapshot_id=wallet_snapshot.id,
+                chain="base",
+                status="failed",
+                total_usd=0,
+                error_type="connection_error",
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    detail = await client.get(f"/snapshot-jobs/{run.id}", headers=owner_headers)
+    assert detail.status_code == 200
+    assert detail.json()["failed_chains"] == ["base", "mainnet"]
+    assert "provider secret" not in str(detail.json()["failed_chains"])
+
+    hidden = await client.post(
+        f"/snapshot-jobs/{run.id}/retry-failed",
+        headers=other_headers,
+    )
+    assert hidden.status_code == 404
+    assert mock_retry.call_count == 0
+
+    labels = {"channel": "telegram", "outcome": "accepted"}
+    before = _counter_value(FAILED_CHAIN_RETRY, **labels)
+    retry = await client.post(
+        f"/snapshot-jobs/{run.id}/retry-failed",
+        headers={**owner_headers, "X-Client-Channel": "telegram"},
+    )
+
+    assert retry.status_code == 202
+    assert retry.json() == {"job_id": 402, "status": "pending"}
+    assert mock_retry.call_args.kwargs["parent_job_id"] == run.id
+    assert _counter_value(FAILED_CHAIN_RETRY, **labels) == before + 1

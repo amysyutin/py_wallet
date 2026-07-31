@@ -47,6 +47,11 @@ MANUAL_REFRESH = Counter(
     "User-requested snapshot refreshes by channel, scope and request outcome.",
     ("channel", "scope", "outcome"),
 )
+FAILED_CHAIN_RETRY = Counter(
+    "py_wallet_failed_chain_retry_total",
+    "User-requested failed-chain retries by channel and request outcome.",
+    ("channel", "outcome"),
+)
 
 SNAPSHOT_SCHEDULER_LAST_TICK = Gauge(
     "py_wallet_snapshot_scheduler_last_tick_timestamp_seconds",

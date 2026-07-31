@@ -11,6 +11,7 @@ def test_frontend_wallet_and_snapshot_contract_is_published():
     assert "post" in paths["/snapshots"]
     assert "get" in paths["/snapshot-jobs"]
     assert "get" in paths["/snapshot-jobs/{job_id}"]
+    assert "post" in paths["/snapshot-jobs/{job_id}/retry-failed"]
 
     wallet_summary = schema["components"]["schemas"]["WalletSummaryRead"]
     assert {

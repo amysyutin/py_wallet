@@ -76,6 +76,7 @@ class PortfolioDataHealth(BaseModel):
     manual_wallets: int
     missing_wallets: int
     refresh_in_progress: bool
+    retryable_job_id: int | None = None
     chain_issues: list[PortfolioChainIssue]
     price_quality: PortfolioPriceQuality
 
