@@ -18,7 +18,11 @@ from app.metrics import (
     WALLET_SNAPSHOT_FRESHNESS,
     observe_wallet_balance,
 )
-from app.services.snapshot_jobs import SnapshotServiceError, create_snapshot_job
+from app.services.snapshot_jobs import (
+    SnapshotJobResult,
+    SnapshotServiceError,
+    create_snapshot_job,
+)
 
 
 def _counter_value(metric, **labels: str) -> float:
@@ -65,6 +69,21 @@ def test_snapshot_client_success_metrics(mock_post: Mock) -> None:
         client_before + 1
     )
     assert _counter_value(SNAPSHOT_JOB_CREATE, **job_labels) == job_before + 1
+
+
+@patch("app.services.snapshot_jobs.requests.post")
+def test_snapshot_client_reads_reused_active_job(mock_post: Mock) -> None:
+    response = Mock(status_code=200)
+    response.json.return_value = {
+        "job_id": 42,
+        "status": "running",
+        "reused": True,
+    }
+    mock_post.return_value = response
+
+    result = create_snapshot_job(_settings(), user_id=7, scope_type="all")
+
+    assert result == SnapshotJobResult(job_id=42, status="running", reused=True)
 
 
 @patch("app.services.snapshot_jobs.requests.post")

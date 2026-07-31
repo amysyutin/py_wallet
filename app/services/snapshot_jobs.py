@@ -19,6 +19,7 @@ logger = get_logger(__name__)
 class SnapshotJobResult:
     job_id: int
     status: str
+    reused: bool = False
 
 
 class SnapshotServiceError(Exception):
@@ -164,6 +165,10 @@ def create_snapshot_job(
         data = response.json()
         job_id = int(data["job_id"])
         job_status = str(data["status"])
+        reused_value = data.get("reused", False)
+        if not isinstance(reused_value, bool):
+            raise TypeError("reused must be a boolean")
+        reused = reused_value
     except (KeyError, TypeError, ValueError) as exc:
         SNAPSHOT_JOB_CREATE.labels(
             trigger=trigger_type, scope=scope_type, outcome="invalid_response"
@@ -173,4 +178,4 @@ def create_snapshot_job(
     SNAPSHOT_JOB_CREATE.labels(
         trigger=trigger_type, scope=scope_type, outcome="success"
     ).inc()
-    return SnapshotJobResult(job_id=job_id, status=job_status)
+    return SnapshotJobResult(job_id=job_id, status=job_status, reused=reused)

@@ -288,6 +288,7 @@ async def get_wallet_snapshots(
 @router.post(
     "/{wallet_id}/snapshots",
     response_model=SnapshotJobRead,
+    response_model_exclude_defaults=True,
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def create_wallet_snapshot(
@@ -312,7 +313,7 @@ async def create_wallet_snapshot(
     except SnapshotServiceError as exc:
         raise HTTPException(exc.status_code, exc.detail) from exc
 
-    return SnapshotJobRead(job_id=job.job_id, status=job.status)
+    return SnapshotJobRead(job_id=job.job_id, status=job.status, reused=job.reused)
 
 
 @router.patch("/{wallet_id}", response_model=WalletRead)

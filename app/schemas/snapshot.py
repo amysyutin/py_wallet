@@ -47,6 +47,7 @@ class SnapshotCreate(BaseModel):
 class SnapshotJobRead(BaseModel):
     job_id: int
     status: str
+    reused: bool = False
 
 
 class SnapshotJobDetail(BaseModel):

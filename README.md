@@ -98,6 +98,8 @@ Authenticated endpoints require `Authorization: Bearer <token>`:
 | `GET` | `/wallets/{id}/balances` | List manual balances for a wallet (`total_usd`, per-asset `value_usd`). |
 | `PUT` | `/wallets/{id}/balances` | Upsert manual balances (manual wallets only). |
 | `DELETE` | `/wallets/{id}/balances/{asset_id}` | Delete one manual balance row. |
+| `POST` | `/snapshots` | Request an owner-scoped `all`, `group`, or `wallet` refresh. Returns the active job with `reused=true` instead of duplicating work for the same scope. |
+| `GET` | `/snapshot-jobs/{id}` | Read owner-scoped refresh progress and terminal status. |
 | `POST` | `/snapshot` | Create a snapshot for one active wallet or all active EVM wallets; EVM snapshots aggregate the wallet address across all supported EVM chains. |
 | `GET` | `/portfolio?wallet_id=<id>&days=30` | Return snapshot history for a wallet (`total_usd` from multi-chain EVM snapshots). |
 | `GET` | `/portfolio/history?group_id=<id>&days=30` | Return an aggregated group history; without `wallet_id` or `group_id`, aggregate all active wallets. |
@@ -131,6 +133,7 @@ In addition to automatic HTTP RED metrics, `/metrics` exposes:
 - `py_wallet_snapshot_job_create_total`
 - `py_wallet_registration_completed_total{channel}`
 - `py_wallet_first_wallet_added_total{channel,wallet_type}`
+- `py_wallet_manual_refresh_total{channel,scope,outcome}`
 - `py_wallet_snapshot_scheduler_last_tick_timestamp_seconds`
 - `py_wallet_snapshot_scheduler_ticks_total`
 - `py_wallet_snapshot_scheduler_jobs_total`
@@ -140,9 +143,9 @@ In addition to automatic HTTP RED metrics, `/metrics` exposes:
 
 Labels are restricted to bounded operation, scope, outcome, trigger, source,
 channel (`web` or `telegram`), wallet type, version, SHA, and environment
-values. Channel attribution is derived server-side: email registration is
-`web`, Telegram authentication is `telegram`, and first-wallet attribution uses
-the user's linked Telegram account. Caller-supplied channel headers are ignored.
+values. Registration and first-wallet attribution are derived server-side.
+Manual refresh accepts only the bounded `X-Client-Channel` values `web` and
+`telegram`; missing or unexpected values collapse to `web`.
 User IDs, wallet IDs, addresses, job IDs, RPC URLs, and error messages are never
 exported as Prometheus labels.
 
