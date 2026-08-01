@@ -2,14 +2,15 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import CHAIN_RPC, NATIVE_SYMBOL
+from app.core.config import get_settings
 from app.db.models.asset import Asset
 from app.db.models.balance_snapshot import BalanceSnapshot
 from app.db.models.manual_balance import ManualBalance
@@ -26,7 +27,10 @@ from app.metrics import observe_wallet_balance
 from app.models import ChainSummary, PortfolioSummary, TokenBalance
 from app.schemas.wallet import (
     WalletAssetDetail,
+    WalletChainIssue,
+    WalletDataHealth,
     WalletDetailSummary,
+    WalletPriceQuality,
     WalletRead,
     WalletSnapshotRead,
     WalletSummaryRead,
@@ -35,6 +39,9 @@ from app.schemas.wallet import (
 
 SNAPSHOT_READ_STATUSES = ("success", "partial_success")
 TOP_ASSETS_LIMIT = 5
+ACTIVE_SNAPSHOT_STATUSES = ("pending", "running")
+KNOWN_PRICE_SOURCES = frozenset({"coingecko", "manual", "static_dev"})
+PRICE_SOURCE_ORDER = ("coingecko", "manual", "static_dev", "unknown")
 
 
 @dataclass
@@ -529,11 +536,141 @@ async def build_wallet_detail_summary(
     session: AsyncSession, wallet: Wallet
 ) -> WalletDetailSummary:
     info = (await build_wallet_balance_info(session, [wallet]))[wallet.id]
+    chain_issues: list[WalletChainIssue] = []
+    price_observations: list[tuple[Decimal, Decimal | None, str | None]] = []
+    if info.wallet_snapshot_id is not None:
+        issue_rows = await session.execute(
+            select(
+                ChainSnapshot.chain,
+                ChainSnapshot.status,
+                ChainSnapshot.error_type,
+            )
+            .where(
+                ChainSnapshot.wallet_snapshot_id == info.wallet_snapshot_id,
+                ChainSnapshot.status != "success",
+            )
+            .order_by(ChainSnapshot.chain)
+        )
+        chain_issues = [
+            WalletChainIssue(
+                chain=row.chain,
+                status=row.status,
+                error_type=row.error_type,
+            )
+            for row in issue_rows
+        ]
+        price_rows = await session.execute(
+            select(
+                SnapshotBalanceSnapshot.amount,
+                SnapshotBalanceSnapshot.price_usd,
+                SnapshotBalanceSnapshot.price_source,
+            )
+            .join(
+                ChainSnapshot,
+                ChainSnapshot.id == SnapshotBalanceSnapshot.chain_snapshot_id,
+            )
+            .where(ChainSnapshot.wallet_snapshot_id == info.wallet_snapshot_id)
+        )
+        price_observations = [
+            (row.amount, row.price_usd, row.price_source) for row in price_rows
+        ]
+    else:
+        manual_source = "manual" if info.balance_source == "manual" else None
+        price_observations = [
+            (asset.amount, asset.price_usd, manual_source) for asset in info.assets
+        ]
+
+    relevant_prices = [
+        (amount, price_usd, source)
+        for amount, price_usd, source in price_observations
+        if amount != Decimal("0")
+    ]
+    price_sources = {
+        source if source in KNOWN_PRICE_SOURCES else "unknown"
+        for _, _, source in relevant_prices
+    }
+    assets_priced = sum(price_usd is not None for _, price_usd, _ in relevant_prices)
+    assets_total = len(relevant_prices)
+    if assets_total == 0:
+        price_state = "unknown"
+    elif assets_priced < assets_total:
+        price_state = "incomplete"
+    elif "static_dev" in price_sources:
+        price_state = "estimated"
+    elif "unknown" in price_sources:
+        price_state = "unknown"
+    else:
+        price_state = "complete"
+    price_quality = WalletPriceQuality(
+        state=price_state,
+        sources=[source for source in PRICE_SOURCE_ORDER if source in price_sources],
+        assets_priced=assets_priced,
+        assets_total=assets_total,
+    )
+
+    refresh_scope = [
+        (SnapshotRun.scope_type == "wallet") & (SnapshotRun.wallet_id == wallet.id),
+        SnapshotRun.scope_type == "all",
+    ]
+    if wallet.group_id is not None:
+        refresh_scope.append(
+            (SnapshotRun.scope_type == "group")
+            & (SnapshotRun.group_id == wallet.group_id)
+        )
+    refresh_in_progress = bool(
+        await session.scalar(
+            select(func.count())
+            .select_from(SnapshotRun)
+            .where(
+                SnapshotRun.user_id == wallet.user_id,
+                SnapshotRun.status.in_(ACTIVE_SNAPSHOT_STATUSES),
+                or_(*refresh_scope),
+            )
+        )
+    )
+
+    as_of = info.last_snapshot_at
+    if as_of is None:
+        freshness = "unknown"
+    else:
+        if as_of.tzinfo is None:
+            as_of = as_of.replace(tzinfo=timezone.utc)
+        age_seconds = max(
+            0.0,
+            (datetime.now(timezone.utc) - as_of).total_seconds(),
+        )
+        settings = get_settings()
+        if age_seconds <= settings.portfolio_fresh_seconds:
+            freshness = "fresh"
+        elif age_seconds <= settings.portfolio_stale_seconds:
+            freshness = "aging"
+        else:
+            freshness = "stale"
+
+    if chain_issues or price_quality.state in {"estimated", "incomplete"}:
+        health_state = "partial"
+    elif refresh_in_progress:
+        health_state = "updating"
+    elif info.balance_source == "none":
+        health_state = "partial"
+    elif freshness == "stale":
+        health_state = "stale"
+    else:
+        health_state = "fresh"
     return WalletDetailSummary(
         wallet=WalletRead.model_validate(wallet),
         balance_usd=info.balance_usd,
         last_snapshot_at=info.last_snapshot_at,
         assets=info.assets,
+        data_health=WalletDataHealth(
+            state=health_state,
+            freshness=freshness,
+            as_of=as_of,
+            source=info.balance_source,  # type: ignore[arg-type]
+            refresh_in_progress=refresh_in_progress,
+            chain_issues=chain_issues,
+            price_quality=price_quality,
+        ),
     )
 
 

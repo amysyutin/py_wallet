@@ -90,6 +90,7 @@ Authenticated endpoints require `Authorization: Bearer <token>`:
 | `POST` | `/wallets` | Add a wallet (`wallet_type`: `evm` or `manual`; EVM requires only `address` and defaults to `chain_type=all`; manual requires `chain_type=manual`, no address). |
 | `GET` | `/wallets` | List active wallets (`?active_only=false` for all). |
 | `GET` | `/wallets/{id}` | Get a wallet by ID. |
+| `GET` | `/wallets/{id}/summary` | Return the saved wallet value/assets plus scoped freshness, source, price quality, active-refresh state, and safe affected-network details. |
 | `GET` | `/wallets/{id}/assets` | Latest persisted EVM portfolio, with a guarded live fallback when no current snapshot exists. |
 | `GET` | `/wallets/{id}/snapshots` | List recent persisted snapshots for one wallet. |
 | `POST` | `/wallets/{id}/snapshots` | Request an explicit snapshot refresh for one active wallet. |
@@ -161,6 +162,13 @@ wallet state. If no snapshot exists after the wallet's most recent update, it
 falls back to the same cached and capacity-limited live lookup used by public
 `GET /assets`. The response keeps the same USD total and per-chain shape.
 Use `POST /wallets/{id}/snapshots` to request an explicit refresh.
+
+`GET /wallets/{id}/summary` is the wallet-detail source of truth for the saved
+value. Its `data_health` uses the same configurable freshness thresholds as the
+portfolio, distinguishes `latest_snapshot|manual|none`, reports an active
+wallet/group/portfolio refresh, and exposes only bounded chain status/error
+categories. Provider messages and endpoints are never returned. A frontend
+live check is diagnostic and must not replace this persisted total or history.
 
 `POST /snapshot` uses the same multi-chain EVM scope for stored history, so
 `GET /portfolio?wallet_id=<id>&days=30` can power a chart of the wallet's
