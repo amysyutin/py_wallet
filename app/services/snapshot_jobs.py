@@ -179,3 +179,114 @@ def create_snapshot_job(
         trigger=trigger_type, scope=scope_type, outcome="success"
     ).inc()
     return SnapshotJobResult(job_id=job_id, status=job_status, reused=reused)
+
+
+def retry_failed_snapshot_job(
+    settings: Settings,
+    *,
+    parent_job_id: int,
+) -> SnapshotJobResult:
+    headers = {"Content-Type": "application/json"}
+    if settings.snapshot_internal_api_token:
+        headers["X-Internal-Token"] = settings.snapshot_internal_api_token
+
+    scope_type = "failed_chains"
+    trigger_type = "retry"
+    operation = "retry_failed"
+    url = (
+        f"{settings.snapshot_service_url.rstrip('/')}/internal/snapshot-jobs/"
+        f"{parent_job_id}/retry-failed"
+    )
+    started_at = perf_counter()
+    try:
+        response = requests.post(
+            url,
+            headers=headers,
+            timeout=settings.snapshot_service_timeout_seconds,
+        )
+    except requests.RequestException as exc:
+        elapsed_seconds = perf_counter() - started_at
+        outcome = "timeout" if isinstance(exc, requests.Timeout) else "connection_error"
+        SNAPSHOT_SERVICE_CLIENT_REQUESTS.labels(
+            operation=operation,
+            scope=scope_type,
+            outcome=outcome,
+        ).inc()
+        SNAPSHOT_SERVICE_CLIENT_DURATION.labels(
+            operation=operation,
+            scope=scope_type,
+            outcome=outcome,
+        ).observe(elapsed_seconds)
+        SNAPSHOT_JOB_CREATE.labels(
+            trigger=trigger_type,
+            scope=scope_type,
+            outcome=outcome,
+        ).inc()
+        raise SnapshotServiceError(502, "Snapshot service is unavailable") from exc
+
+    elapsed_seconds = perf_counter() - started_at
+    if 200 <= response.status_code < 300:
+        outcome = "success"
+    elif response.status_code == 401:
+        outcome = "auth_error"
+    elif response.status_code in (400, 404, 409, 422):
+        outcome = "validation_error"
+    elif response.status_code >= 500:
+        outcome = "upstream_5xx"
+    else:
+        outcome = "upstream_error"
+    SNAPSHOT_SERVICE_CLIENT_REQUESTS.labels(
+        operation=operation,
+        scope=scope_type,
+        outcome=outcome,
+    ).inc()
+    SNAPSHOT_SERVICE_CLIENT_DURATION.labels(
+        operation=operation,
+        scope=scope_type,
+        outcome=outcome,
+    ).observe(elapsed_seconds)
+    if outcome != "success":
+        SNAPSHOT_JOB_CREATE.labels(
+            trigger=trigger_type,
+            scope=scope_type,
+            outcome=outcome,
+        ).inc()
+
+    if response.status_code == 401:
+        raise SnapshotServiceError(502, "Snapshot service authentication failed")
+    if response.status_code in (400, 409, 422):
+        raise SnapshotServiceError(
+            response.status_code, _extract_error_detail(response)
+        )
+    if response.status_code == 404:
+        raise SnapshotServiceError(409, "Snapshot job is no longer available for retry")
+    if response.status_code >= 500:
+        raise SnapshotServiceError(502, "Snapshot service is unavailable")
+    if not 200 <= response.status_code < 300:
+        raise SnapshotServiceError(502, "Unexpected snapshot service response")
+
+    try:
+        data = response.json()
+        job_id = int(data["job_id"])
+        job_status = str(data["status"])
+        reused_value = data.get("reused", False)
+        if not isinstance(reused_value, bool):
+            raise TypeError("reused must be a boolean")
+    except (KeyError, TypeError, ValueError) as exc:
+        SNAPSHOT_JOB_CREATE.labels(
+            trigger=trigger_type,
+            scope=scope_type,
+            outcome="invalid_response",
+        ).inc()
+        raise SnapshotServiceError(502, "Unexpected snapshot service response") from exc
+
+    SNAPSHOT_JOB_CREATE.labels(
+        trigger=trigger_type,
+        scope=scope_type,
+        outcome="success",
+    ).inc()
+    return SnapshotJobResult(
+        job_id=job_id,
+        status=job_status,
+        reused=reused_value,
+    )

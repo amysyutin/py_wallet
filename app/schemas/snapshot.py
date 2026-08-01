@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 class SnapshotCreate(BaseModel):
@@ -60,6 +60,7 @@ class SnapshotJobDetail(BaseModel):
     created_at: datetime
     finished_at: datetime | None
     error_message: str | None
+    failed_chains: list[str] = Field(default_factory=list)
 
 
 class BalanceRead(BaseModel):

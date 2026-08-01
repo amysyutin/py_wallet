@@ -100,6 +100,7 @@ Authenticated endpoints require `Authorization: Bearer <token>`:
 | `DELETE` | `/wallets/{id}/balances/{asset_id}` | Delete one manual balance row. |
 | `POST` | `/snapshots` | Request an owner-scoped `all`, `group`, or `wallet` refresh. Returns the active job with `reused=true` instead of duplicating work for the same scope. |
 | `GET` | `/snapshot-jobs/{id}` | Read owner-scoped refresh progress and terminal status. |
+| `POST` | `/snapshot-jobs/{id}/retry-failed` | Retry only failed chains from an owner-scoped terminal job; reuses an active child retry. |
 | `POST` | `/snapshot` | Create a snapshot for one active wallet or all active EVM wallets; EVM snapshots aggregate the wallet address across all supported EVM chains. |
 | `GET` | `/portfolio?wallet_id=<id>&days=30` | Return snapshot history for a wallet (`total_usd` from multi-chain EVM snapshots). |
 | `GET` | `/portfolio/history?group_id=<id>&days=30` | Return an aggregated group history; without `wallet_id` or `group_id`, aggregate all active wallets. |
@@ -134,6 +135,7 @@ In addition to automatic HTTP RED metrics, `/metrics` exposes:
 - `py_wallet_registration_completed_total{channel}`
 - `py_wallet_first_wallet_added_total{channel,wallet_type}`
 - `py_wallet_manual_refresh_total{channel,scope,outcome}`
+- `py_wallet_failed_chain_retry_total{channel,outcome}`
 - `py_wallet_snapshot_scheduler_last_tick_timestamp_seconds`
 - `py_wallet_snapshot_scheduler_ticks_total`
 - `py_wallet_snapshot_scheduler_jobs_total`

@@ -39,7 +39,7 @@ async def _add_wallet_snapshot(
     asset_amount: Decimal | None = None,
     price_usd: Decimal | None = None,
     price_source: str | None = None,
-) -> None:
+) -> int:
     run = SnapshotRun(
         user_id=wallet.user_id,
         wallet_id=wallet.id,
@@ -81,6 +81,7 @@ async def _add_wallet_snapshot(
             )
         )
         await session.flush()
+    return run.id
 
 
 async def test_portfolio_health_exposes_partial_coverage_without_provider_details(
@@ -91,7 +92,7 @@ async def test_portfolio_health_exposes_partial_coverage_without_provider_detail
     wallet_id = await _create_evm_wallet(client, auth_headers, 101)
     wallet = await db_session.get(Wallet, wallet_id)
     assert wallet is not None
-    await _add_wallet_snapshot(
+    run_id = await _add_wallet_snapshot(
         db_session,
         wallet,
         finished_at=datetime.now(timezone.utc) - timedelta(minutes=2),
@@ -112,6 +113,7 @@ async def test_portfolio_health_exposes_partial_coverage_without_provider_detail
     assert health["snapshot_wallets"] == 1
     assert health["manual_wallets"] == 0
     assert health["missing_wallets"] == 0
+    assert health["retryable_job_id"] == run_id
     assert health["chain_issues"] == [
         {
             "chain": "base",
@@ -121,6 +123,51 @@ async def test_portfolio_health_exposes_partial_coverage_without_provider_detail
         }
     ]
     assert "secret-token" not in response.text
+
+
+async def test_portfolio_health_does_not_offer_one_retry_for_multiple_parent_jobs(
+    client: AsyncClient,
+    auth_headers: dict,
+    db_session: AsyncSession,
+):
+    first_wallet_id = await _create_evm_wallet(client, auth_headers, 111)
+    second_wallet_id = await _create_evm_wallet(client, auth_headers, 112)
+    first_wallet = await db_session.get(Wallet, first_wallet_id)
+    second_wallet = await db_session.get(Wallet, second_wallet_id)
+    assert first_wallet is not None
+    assert second_wallet is not None
+    observed_at = datetime.now(timezone.utc) - timedelta(minutes=2)
+    await _add_wallet_snapshot(
+        db_session,
+        first_wallet,
+        finished_at=observed_at,
+        wallet_status="partial_success",
+        chain_status="failed",
+        error_type="timeout",
+    )
+    await _add_wallet_snapshot(
+        db_session,
+        second_wallet,
+        finished_at=observed_at,
+        wallet_status="partial_success",
+        chain_status="failed",
+        error_type="connection_error",
+    )
+
+    response = await client.get("/portfolio/summary", headers=auth_headers)
+
+    assert response.status_code == 200
+    health = response.json()["data_health"]
+    assert health["state"] == "partial"
+    assert health["retryable_job_id"] is None
+    assert health["chain_issues"] == [
+        {
+            "chain": "base",
+            "status": "failed",
+            "error_type": "multiple_errors",
+            "wallets_count": 2,
+        }
+    ]
 
 
 async def test_portfolio_health_uses_oldest_source_for_staleness(

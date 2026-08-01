@@ -22,6 +22,7 @@ from app.services.snapshot_jobs import (
     SnapshotJobResult,
     SnapshotServiceError,
     create_snapshot_job,
+    retry_failed_snapshot_job,
 )
 
 
@@ -132,6 +133,24 @@ def test_snapshot_client_timeout_metrics(_mock_post: Mock) -> None:
         client_before + 1
     )
     assert _counter_value(SNAPSHOT_JOB_CREATE, **job_labels) == job_before + 1
+
+
+@patch("app.services.snapshot_jobs.requests.post")
+def test_snapshot_retry_client_reads_reused_job(mock_post: Mock) -> None:
+    response = Mock(status_code=200)
+    response.json.return_value = {
+        "job_id": 77,
+        "status": "running",
+        "reused": True,
+    }
+    mock_post.return_value = response
+
+    result = retry_failed_snapshot_job(_settings(), parent_job_id=42)
+
+    assert result == SnapshotJobResult(job_id=77, status="running", reused=True)
+    assert mock_post.call_args.args[0].endswith(
+        "/internal/snapshot-jobs/42/retry-failed"
+    )
 
 
 def test_wallet_balance_source_and_freshness_metrics() -> None:

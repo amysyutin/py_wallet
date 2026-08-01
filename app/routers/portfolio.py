@@ -871,6 +871,11 @@ async def portfolio_summary(
                     ChainSnapshot.status,
                     ChainSnapshot.error_type,
                     ChainSnapshot.wallet_snapshot_id,
+                    WalletSnapshot.snapshot_run_id,
+                )
+                .join(
+                    WalletSnapshot,
+                    WalletSnapshot.id == ChainSnapshot.wallet_snapshot_id,
                 )
                 .where(
                     ChainSnapshot.wallet_snapshot_id.in_(latest_snapshot_ids),
@@ -880,6 +885,7 @@ async def portfolio_summary(
             )
         )
     issue_by_chain: dict[str, dict[str, object]] = {}
+    retryable_run_ids: set[int] = set()
     for row in issue_rows:
         issue = issue_by_chain.setdefault(
             row.chain,
@@ -893,6 +899,8 @@ async def portfolio_summary(
         if row.error_type:
             issue["error_types"].add(row.error_type)
         issue["wallet_ids"].add(row.wallet_snapshot_id)
+        if row.status == "failed":
+            retryable_run_ids.add(row.snapshot_run_id)
     chain_issues = []
     for chain, issue in sorted(issue_by_chain.items()):
         statuses = issue["statuses"]
@@ -1002,6 +1010,9 @@ async def portfolio_summary(
             manual_wallets=manual_wallets,
             missing_wallets=missing_wallets,
             refresh_in_progress=refresh_in_progress,
+            retryable_job_id=(
+                next(iter(retryable_run_ids)) if len(retryable_run_ids) == 1 else None
+            ),
             chain_issues=chain_issues,
             price_quality=price_quality,
         ),
