@@ -311,9 +311,14 @@ minutes):
 python -m app.jobs.telegram_daily_balance
 ```
 
-The job reads only persisted portfolio snapshots, sends at most one digest per
-Telegram account and local calendar date, and links back to the Mini App. Telegram
-`400`/`403` send failures disable that user's notifications until they opt in again.
+The job reads only persisted portfolio data, sends at most one digest per
+Telegram account and local calendar date, and links back to the Mini App. The
+message includes the conservative oldest `as of` timestamp, wallet coverage,
+and the same `fresh|updating|partial|stale` health state as the portfolio API;
+it never performs live RPC in the delivery path. Delivery attempts export
+`py_wallet_telegram_digest_total{language,outcome,health_state}` without user,
+chat, wallet, job, or address labels. Telegram `400`/`403` send failures disable
+that user's notifications until they opt in again.
 
 ## JWT Auth Security
 

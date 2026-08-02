@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 
 from app.db.models.asset import Asset
 from app.db.models.balance_snapshot import BalanceSnapshot
@@ -24,7 +24,6 @@ from app.schemas.portfolio import (
     PortfolioAllocationQuality,
     PortfolioAllScope,
     PortfolioChainIssue,
-    PortfolioDataHealth,
     PortfolioHistory,
     PortfolioPoint,
     PortfolioPriceQuality,
@@ -33,12 +32,14 @@ from app.schemas.portfolio import (
     PortfolioValueChange24h,
 )
 from app.services.wallet_view import build_wallet_balance_info
+from app.services.portfolio_health import (
+    active_canonical_wallets as _active_canonical_wallets,
+    build_portfolio_data_health,
+    portfolio_price_quality as _portfolio_price_quality,
+)
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 HISTORY_READ_STATUSES = ("success",)
-ACTIVE_SNAPSHOT_STATUSES = ("pending", "running")
-KNOWN_PRICE_SOURCES = frozenset({"coingecko", "manual", "static_dev"})
-PRICE_SOURCE_ORDER = ("coingecko", "manual", "static_dev", "unknown")
 ALLOCATION_VISIBLE_ASSETS = 5
 
 
@@ -47,94 +48,6 @@ def _snapshot_observed_at():
         WalletSnapshot.finished_at,
         SnapshotRun.finished_at,
         SnapshotRun.created_at,
-    )
-
-
-async def _active_canonical_wallets(
-    session: SessionDep,
-    *,
-    user_id: int,
-    group_ids: list[int] | None = None,
-    include_ungrouped: bool = True,
-) -> list[Wallet]:
-    normalized_address = func.lower(func.trim(Wallet.address))
-    canonical_active_evm_ids = (
-        select(func.min(Wallet.id))
-        .where(
-            Wallet.user_id == user_id,
-            Wallet.wallet_type == "evm",
-            Wallet.is_active.is_(True),
-            Wallet.address.is_not(None),
-        )
-        .group_by(normalized_address)
-    )
-    query = select(Wallet).where(
-        Wallet.user_id == user_id,
-        Wallet.is_active.is_(True),
-        or_(
-            Wallet.wallet_type != "evm",
-            Wallet.id.in_(canonical_active_evm_ids),
-        ),
-    )
-    if group_ids is not None:
-        scope_filters = []
-        if group_ids:
-            scope_filters.append(Wallet.group_id.in_(group_ids))
-        if include_ungrouped:
-            scope_filters.append(Wallet.group_id.is_(None))
-        query = query.where(or_(*scope_filters))
-    return list(await session.scalars(query.order_by(Wallet.id)))
-
-
-def _portfolio_freshness(
-    as_of: datetime | None,
-    *,
-    fresh_seconds: int,
-    stale_seconds: int,
-) -> str:
-    if as_of is None:
-        return "unknown"
-    if as_of.tzinfo is None:
-        as_of = as_of.replace(tzinfo=timezone.utc)
-    age_seconds = max(0.0, (datetime.now(timezone.utc) - as_of).total_seconds())
-    if age_seconds <= fresh_seconds:
-        return "fresh"
-    if age_seconds <= stale_seconds:
-        return "aging"
-    return "stale"
-
-
-def _portfolio_price_quality(
-    observations: list[tuple[Decimal, Decimal | None, str | None]],
-) -> PortfolioPriceQuality:
-    relevant = [
-        (amount, price_usd, source)
-        for amount, price_usd, source in observations
-        if amount != Decimal("0")
-    ]
-    sources = {
-        source if source in KNOWN_PRICE_SOURCES else "unknown"
-        for _, _, source in relevant
-    }
-    assets_priced = sum(price_usd is not None for _, price_usd, _ in relevant)
-    assets_total = len(relevant)
-
-    if assets_total == 0:
-        quality_state = "unknown"
-    elif assets_priced < assets_total:
-        quality_state = "incomplete"
-    elif "static_dev" in sources:
-        quality_state = "estimated"
-    elif "unknown" in sources:
-        quality_state = "unknown"
-    else:
-        quality_state = "complete"
-
-    return PortfolioPriceQuality(
-        state=quality_state,
-        sources=[source for source in PRICE_SOURCE_ORDER if source in sources],
-        assets_priced=assets_priced,
-        assets_total=assets_total,
     )
 
 
@@ -829,139 +742,12 @@ async def portfolio_summary(
         if balance_info[wallet.id].last_snapshot_at is not None
     ]
     last_snapshot_at = max(snapshot_dates) if snapshot_dates else None
-    # The conservative portfolio timestamp is the oldest automated source
-    # contributing to the total. A newest-wallet timestamp would hide stale
-    # wallets behind one recently refreshed wallet.
-    as_of = min(snapshot_dates) if snapshot_dates else None
-
-    snapshot_wallets = sum(
-        balance_info[wallet.id].balance_source == "latest_snapshot"
-        for wallet in wallets
+    data_health = await build_portfolio_data_health(
+        session,
+        user_id=current_user.id,
+        wallets=wallets,
+        balance_info=balance_info,
     )
-    manual_wallets = sum(
-        balance_info[wallet.id].balance_source == "manual" for wallet in wallets
-    )
-    missing_wallets = sum(
-        balance_info[wallet.id].balance_source == "none" for wallet in wallets
-    )
-    wallets_covered = snapshot_wallets + manual_wallets
-
-    refresh_in_progress = bool(
-        await session.scalar(
-            select(func.count())
-            .select_from(SnapshotRun)
-            .where(
-                SnapshotRun.user_id == current_user.id,
-                SnapshotRun.status.in_(ACTIVE_SNAPSHOT_STATUSES),
-            )
-        )
-    )
-
-    latest_snapshot_ids = [
-        balance_info[wallet.id].wallet_snapshot_id
-        for wallet in wallets
-        if balance_info[wallet.id].wallet_snapshot_id is not None
-    ]
-    issue_rows = []
-    if latest_snapshot_ids:
-        issue_rows = list(
-            await session.execute(
-                select(
-                    ChainSnapshot.chain,
-                    ChainSnapshot.status,
-                    ChainSnapshot.error_type,
-                    ChainSnapshot.wallet_snapshot_id,
-                    WalletSnapshot.snapshot_run_id,
-                )
-                .join(
-                    WalletSnapshot,
-                    WalletSnapshot.id == ChainSnapshot.wallet_snapshot_id,
-                )
-                .where(
-                    ChainSnapshot.wallet_snapshot_id.in_(latest_snapshot_ids),
-                    ChainSnapshot.status != "success",
-                )
-                .order_by(ChainSnapshot.chain, ChainSnapshot.wallet_snapshot_id)
-            )
-        )
-    issue_by_chain: dict[str, dict[str, object]] = {}
-    retryable_run_ids: set[int] = set()
-    for row in issue_rows:
-        issue = issue_by_chain.setdefault(
-            row.chain,
-            {
-                "statuses": set(),
-                "error_types": set(),
-                "wallet_ids": set(),
-            },
-        )
-        issue["statuses"].add(row.status)
-        if row.error_type:
-            issue["error_types"].add(row.error_type)
-        issue["wallet_ids"].add(row.wallet_snapshot_id)
-        if row.status == "failed":
-            retryable_run_ids.add(row.snapshot_run_id)
-    chain_issues = []
-    for chain, issue in sorted(issue_by_chain.items()):
-        statuses = issue["statuses"]
-        error_types = issue["error_types"]
-        chain_issues.append(
-            PortfolioChainIssue(
-                chain=chain,
-                status="failed" if "failed" in statuses else sorted(statuses)[0],
-                error_type=(
-                    next(iter(error_types))
-                    if len(error_types) == 1
-                    else ("multiple_errors" if error_types else None)
-                ),
-                wallets_count=len(issue["wallet_ids"]),
-            )
-        )
-
-    price_observations: list[tuple[Decimal, Decimal | None, str | None]] = []
-    if latest_snapshot_ids:
-        price_rows = await session.execute(
-            select(
-                SnapshotBalanceSnapshot.amount,
-                SnapshotBalanceSnapshot.price_usd,
-                SnapshotBalanceSnapshot.price_source,
-            )
-            .join(
-                ChainSnapshot,
-                ChainSnapshot.id == SnapshotBalanceSnapshot.chain_snapshot_id,
-            )
-            .where(ChainSnapshot.wallet_snapshot_id.in_(latest_snapshot_ids))
-        )
-        price_observations.extend(
-            (row.amount, row.price_usd, row.price_source) for row in price_rows
-        )
-
-    for wallet in wallets:
-        info = balance_info[wallet.id]
-        if info.wallet_snapshot_id is not None:
-            continue
-        source = "manual" if info.balance_source == "manual" else None
-        price_observations.extend(
-            (asset.amount, asset.price_usd, source) for asset in info.assets
-        )
-    price_quality = _portfolio_price_quality(price_observations)
-
-    settings = get_settings()
-    freshness = _portfolio_freshness(
-        as_of,
-        fresh_seconds=settings.portfolio_fresh_seconds,
-        stale_seconds=settings.portfolio_stale_seconds,
-    )
-    if chain_issues or price_quality.state in {"estimated", "incomplete"}:
-        health_state = "partial"
-    elif refresh_in_progress:
-        health_state = "updating"
-    elif missing_wallets:
-        health_state = "partial"
-    elif freshness == "stale":
-        health_state = "stale"
-    else:
-        health_state = "fresh"
 
     asset_totals: dict[str, Decimal] = {}
     for wallet in wallets:
@@ -988,10 +774,10 @@ async def portfolio_summary(
         wallets,
         current_total=total,
         balance_info=balance_info,
-        price_quality=price_quality,
-        health_state=health_state,
-        freshness=freshness,
-        chain_issues=chain_issues,
+        price_quality=data_health.price_quality,
+        health_state=data_health.state,
+        freshness=data_health.freshness,
+        chain_issues=data_health.chain_issues,
     )
 
     return PortfolioSummary(
@@ -1000,21 +786,6 @@ async def portfolio_summary(
         active_wallets_count=active_wallets_count,
         last_snapshot_at=last_snapshot_at,
         top_assets=top_assets,
-        data_health=PortfolioDataHealth(
-            state=health_state,
-            freshness=freshness,
-            as_of=as_of,
-            wallets_covered=wallets_covered,
-            wallets_total=active_wallets_count,
-            snapshot_wallets=snapshot_wallets,
-            manual_wallets=manual_wallets,
-            missing_wallets=missing_wallets,
-            refresh_in_progress=refresh_in_progress,
-            retryable_job_id=(
-                next(iter(retryable_run_ids)) if len(retryable_run_ids) == 1 else None
-            ),
-            chain_issues=chain_issues,
-            price_quality=price_quality,
-        ),
+        data_health=data_health,
         change_24h=change_24h,
     )

@@ -52,6 +52,11 @@ FAILED_CHAIN_RETRY = Counter(
     "User-requested failed-chain retries by channel and request outcome.",
     ("channel", "outcome"),
 )
+TELEGRAM_DIGEST = Counter(
+    "py_wallet_telegram_digest_total",
+    "Telegram daily digest delivery attempts by language, outcome and data health.",
+    ("language", "outcome", "health_state"),
+)
 
 SNAPSHOT_SCHEDULER_LAST_TICK = Gauge(
     "py_wallet_snapshot_scheduler_last_tick_timestamp_seconds",

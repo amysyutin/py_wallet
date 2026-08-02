@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from hashlib import sha256
@@ -16,12 +17,23 @@ from app.db.models.telegram import (
     TelegramDigestDelivery,
     TelegramNotificationSettings,
 )
-from app.db.models.wallet import Wallet
+from app.metrics import TELEGRAM_DIGEST
+from app.schemas.portfolio import PortfolioDataHealth
+from app.services.portfolio_health import (
+    active_canonical_wallets,
+    build_portfolio_data_health,
+)
 from app.services.wallet_view import build_wallet_balance_info
 
 DELIVERY_LEASE_SECONDS = 10 * 60
 MAX_DELIVERY_ATTEMPTS = 3
 MAX_RETRY_AFTER_SECONDS = 24 * 60 * 60
+
+
+@dataclass(frozen=True)
+class PersistedPortfolioDigest:
+    total_usd: Decimal
+    data_health: PortfolioDataHealth
 
 
 class TelegramSendError(RuntimeError):
@@ -51,7 +63,14 @@ def resolve_telegram_webhook_secret(settings: Settings) -> str:
 
 
 def format_daily_balance(
-    total_usd: Decimal, *, language: str, as_of: datetime | None
+    total_usd: Decimal,
+    *,
+    language: str,
+    as_of: datetime | None,
+    health_state: str = "fresh",
+    wallets_covered: int | None = None,
+    wallets_total: int | None = None,
+    manual_wallets: int = 0,
 ) -> str:
     amount = f"${total_usd:,.2f}"
     timestamp = (
@@ -59,10 +78,56 @@ def format_daily_balance(
     )
     if language == "ru":
         lines = ["Ваш портфель", "", f"Общая стоимость: {amount}"]
-        lines.append(f"Данные на: {timestamp}" if timestamp else "Снимков пока нет")
+        health_labels = {
+            "fresh": "Актуальные",
+            "updating": "Обновляются",
+            "partial": "Частичные",
+            "stale": "Устарели",
+        }
+        if as_of is not None:
+            lines.append(f"Данные на: {timestamp}")
+        elif manual_wallets:
+            lines.append("Время снимка: нет — учтены введённые вручную данные")
+        else:
+            lines.append("Сохранённых данных пока нет")
+        if wallets_covered is not None and wallets_total is not None:
+            lines.append(f"Покрытие: {wallets_covered}/{wallets_total} кошельков")
+        if wallets_total:
+            lines.append(
+                f"Состояние данных: {health_labels.get(health_state, 'Частичные')}"
+            )
+        if health_state == "partial":
+            lines.append("Итог может быть неполным — подробности доступны в портфеле.")
+        elif health_state == "stale":
+            lines.append("Данные устарели — откройте портфель, чтобы обновить их.")
+        elif health_state == "updating":
+            lines.append("Обновление выполняется; показан последний сохранённый итог.")
     else:
         lines = ["Your portfolio", "", f"Total value: {amount}"]
-        lines.append(f"As of: {timestamp}" if timestamp else "No snapshots yet")
+        health_labels = {
+            "fresh": "Fresh",
+            "updating": "Updating",
+            "partial": "Partial",
+            "stale": "Stale",
+        }
+        if as_of is not None:
+            lines.append(f"As of: {timestamp}")
+        elif manual_wallets:
+            lines.append("Snapshot time: unavailable — manual data is included")
+        else:
+            lines.append("No saved data yet")
+        if wallets_covered is not None and wallets_total is not None:
+            lines.append(f"Coverage: {wallets_covered}/{wallets_total} wallets")
+        if wallets_total:
+            lines.append(f"Data health: {health_labels.get(health_state, 'Partial')}")
+        if health_state == "partial":
+            lines.append(
+                "The total may be incomplete — open the portfolio for details."
+            )
+        elif health_state == "stale":
+            lines.append("Data is stale — open the portfolio to refresh it.")
+        elif health_state == "updating":
+            lines.append("An update is running; this is the last saved total.")
     return "\n".join(lines)
 
 
@@ -168,26 +233,25 @@ class TelegramBotClient:
         self._send_message(chat_id, text, mini_app_url, button_text)
 
 
-async def persisted_portfolio_total(
-    session: AsyncSession, user_id: int
-) -> tuple[Decimal, datetime | None]:
-    wallets = list(
-        await session.scalars(
-            select(Wallet).where(Wallet.user_id == user_id, Wallet.is_active.is_(True))
-        )
-    )
-    if not wallets:
-        return Decimal("0"), None
+async def persisted_portfolio_digest(
+    session: AsyncSession,
+    user_id: int,
+    *,
+    now: datetime | None = None,
+) -> PersistedPortfolioDigest:
+    wallets = await active_canonical_wallets(session, user_id=user_id)
     balance_info = await build_wallet_balance_info(session, wallets)
     total = sum(
         (balance_info[wallet.id].balance_usd for wallet in wallets), Decimal("0")
     )
-    snapshot_dates = [
-        balance_info[wallet.id].last_snapshot_at
-        for wallet in wallets
-        if balance_info[wallet.id].last_snapshot_at is not None
-    ]
-    return total, max(snapshot_dates) if snapshot_dates else None
+    data_health = await build_portfolio_data_health(
+        session,
+        user_id=user_id,
+        wallets=wallets,
+        balance_info=balance_info,
+        now=now,
+    )
+    return PersistedPortfolioDigest(total_usd=total, data_health=data_health)
 
 
 def _is_due(settings: TelegramNotificationSettings, now: datetime) -> date | None:
@@ -248,7 +312,12 @@ async def send_due_daily_balances(
                 < timedelta(seconds=DELIVERY_LEASE_SECONDS)
             ):
                 continue
-        total, as_of = await persisted_portfolio_total(session, account.user_id)
+        digest = await persisted_portfolio_digest(
+            session,
+            account.user_id,
+            now=current,
+        )
+        total = digest.total_usd
         if delivery is None:
             delivery_id = await session.scalar(
                 insert(TelegramDigestDelivery)
@@ -278,7 +347,16 @@ async def send_due_daily_balances(
             delivery.attempted_at = current
             delivery.retry_after = None
         await session.commit()
-        text = format_daily_balance(total, language=notification.language, as_of=as_of)
+        health = digest.data_health
+        text = format_daily_balance(
+            total,
+            language=notification.language,
+            as_of=health.as_of,
+            health_state=health.state,
+            wallets_covered=health.wallets_covered,
+            wallets_total=health.wallets_total,
+            manual_wallets=health.manual_wallets,
+        )
         try:
             bot.send_daily_balance(
                 account.telegram_user_id,
@@ -308,5 +386,10 @@ async def send_due_daily_balances(
             delivery.status = "sent"
             delivery.sent_at = datetime.now(timezone.utc)
             sent += 1
+        TELEGRAM_DIGEST.labels(
+            language=notification.language,
+            outcome=delivery.status,
+            health_state=health.state,
+        ).inc()
         await session.commit()
     return sent, failed
