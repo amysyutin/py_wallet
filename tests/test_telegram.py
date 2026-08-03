@@ -15,9 +15,11 @@ from app.db.models.telegram import (
     TelegramDigestDelivery,
     TelegramNotificationSettings,
 )
+from app.db.models.snapshot_service import ChainSnapshot, SnapshotRun, WalletSnapshot
 from app.db.models.user import User
+from app.db.models.wallet import Wallet
 from app.db.models.wallet_group import WalletGroup
-from app.metrics import REGISTRATION_COMPLETED
+from app.metrics import REGISTRATION_COMPLETED, TELEGRAM_DIGEST
 from app.services.telegram_auth import TelegramInitDataError, validate_init_data
 from app.services.telegram_daily_balance import (
     TelegramBotClient,
@@ -392,6 +394,44 @@ class FailingTelegramClient:
         raise self.error
 
 
+async def _add_digest_snapshot(
+    db_session,
+    wallet: Wallet,
+    *,
+    observed_at: datetime,
+    total_usd: Decimal,
+) -> None:
+    run = SnapshotRun(
+        user_id=wallet.user_id,
+        wallet_id=wallet.id,
+        trigger_type="scheduler",
+        scope_type="wallet",
+        status="success",
+        finished_at=observed_at,
+    )
+    db_session.add(run)
+    await db_session.flush()
+    snapshot = WalletSnapshot(
+        snapshot_run_id=run.id,
+        wallet_id=wallet.id,
+        wallet_type="evm",
+        status="success",
+        total_usd=total_usd,
+        finished_at=observed_at,
+    )
+    db_session.add(snapshot)
+    await db_session.flush()
+    db_session.add(
+        ChainSnapshot(
+            wallet_snapshot_id=snapshot.id,
+            chain="base",
+            status="success",
+            total_usd=total_usd,
+            finished_at=observed_at,
+        )
+    )
+
+
 @pytest.mark.asyncio
 async def test_daily_balance_is_due_and_idempotent(db_session):
     user = User(email=None, auth_hash=None)
@@ -436,6 +476,89 @@ async def test_daily_balance_is_due_and_idempotent(db_session):
     assert fake.messages[0][3] == "Открыть портфель"
     delivery = await db_session.scalar(select(TelegramDigestDelivery))
     assert delivery.status == "sent"
+
+
+@pytest.mark.asyncio
+async def test_daily_balance_uses_oldest_source_and_reports_stale_health(db_session):
+    user = User(email=None, auth_hash=None)
+    db_session.add(user)
+    await db_session.flush()
+    account = TelegramAccount(
+        user_id=user.id,
+        telegram_user_id=20004,
+        first_name="Test",
+        allows_write_to_pm=True,
+    )
+    db_session.add(account)
+    await db_session.flush()
+    db_session.add(
+        TelegramNotificationSettings(
+            telegram_account_id=account.id,
+            enabled=True,
+            timezone="UTC",
+            daily_at=time(9, 0),
+            language="en",
+        )
+    )
+    wallets = [
+        Wallet(
+            user_id=user.id,
+            label="Older source",
+            address="0x0000000000000000000000000000000000000204",
+            chain_type="mainnet",
+            wallet_type="evm",
+            is_active=True,
+        ),
+        Wallet(
+            user_id=user.id,
+            label="Fresh source",
+            address="0x0000000000000000000000000000000000000205",
+            chain_type="mainnet",
+            wallet_type="evm",
+            is_active=True,
+        ),
+    ]
+    db_session.add_all(wallets)
+    await db_session.flush()
+    now = datetime(2026, 7, 19, 11, 0, tzinfo=timezone.utc)
+    await _add_digest_snapshot(
+        db_session,
+        wallets[0],
+        observed_at=now - timedelta(hours=2),
+        total_usd=Decimal("10"),
+    )
+    await _add_digest_snapshot(
+        db_session,
+        wallets[1],
+        observed_at=now - timedelta(minutes=5),
+        total_usd=Decimal("20"),
+    )
+    await db_session.commit()
+    config = Settings(
+        app_env="test",
+        jwt_secret="ci-test-secret",
+        telegram_bot_token=BOT_TOKEN,
+        telegram_daily_balance_enabled=True,
+    )
+    fake = FakeTelegramClient()
+    labels = {"language": "en", "outcome": "sent", "health_state": "stale"}
+    metric_before = TELEGRAM_DIGEST.labels(**labels)._value.get()
+
+    result = await send_due_daily_balances(
+        db_session,
+        config,
+        now=now,
+        client=fake,
+    )
+
+    assert result == (1, 0)
+    message = fake.messages[0][1]
+    assert "Total value: $30.00" in message
+    assert "As of: 2026-07-19 09:00 UTC" in message
+    assert "Coverage: 2/2 wallets" in message
+    assert "Data health: Stale" in message
+    assert "2026-07-19 10:55 UTC" not in message
+    assert TELEGRAM_DIGEST.labels(**labels)._value.get() == metric_before + 1
 
 
 @pytest.mark.asyncio
@@ -538,12 +661,28 @@ async def test_daily_balance_honors_retry_after_and_reclaims_stale_pending(db_se
 
 
 def test_daily_balance_formatter_supports_both_languages():
-    assert "Общая стоимость: $1,234.50" in format_daily_balance(
-        Decimal("1234.5"), language="ru", as_of=None
+    russian = format_daily_balance(
+        Decimal("1234.5"),
+        language="ru",
+        as_of=None,
+        health_state="partial",
+        wallets_covered=1,
+        wallets_total=2,
     )
-    assert "Total value: $1,234.50" in format_daily_balance(
-        Decimal("1234.5"), language="en", as_of=None
+    english = format_daily_balance(
+        Decimal("1234.5"),
+        language="en",
+        as_of=None,
+        health_state="partial",
+        wallets_covered=1,
+        wallets_total=2,
     )
+    assert "Общая стоимость: $1,234.50" in russian
+    assert "Покрытие: 1/2 кошельков" in russian
+    assert "Состояние данных: Частичные" in russian
+    assert "Total value: $1,234.50" in english
+    assert "Coverage: 1/2 wallets" in english
+    assert "Data health: Partial" in english
 
 
 def test_telegram_client_does_not_chain_token_bearing_network_error(monkeypatch):

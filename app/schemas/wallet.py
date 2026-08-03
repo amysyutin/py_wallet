@@ -148,11 +148,35 @@ class WalletSummaryRead(BaseModel):
     updated_at: datetime
 
 
+class WalletChainIssue(BaseModel):
+    chain: str
+    status: str
+    error_type: str | None = None
+
+
+class WalletPriceQuality(BaseModel):
+    state: Literal["complete", "estimated", "incomplete", "unknown"]
+    sources: list[Literal["coingecko", "manual", "static_dev", "unknown"]]
+    assets_priced: int
+    assets_total: int
+
+
+class WalletDataHealth(BaseModel):
+    state: Literal["fresh", "updating", "partial", "stale"]
+    freshness: Literal["fresh", "aging", "stale", "unknown"]
+    as_of: datetime | None = None
+    source: Literal["latest_snapshot", "manual", "none"]
+    refresh_in_progress: bool
+    chain_issues: list[WalletChainIssue]
+    price_quality: WalletPriceQuality
+
+
 class WalletDetailSummary(BaseModel):
     wallet: WalletRead
     balance_usd: Decimal
     last_snapshot_at: datetime | None
     assets: list[WalletAssetDetail]
+    data_health: WalletDataHealth
 
 
 class WalletSnapshotRead(BaseModel):

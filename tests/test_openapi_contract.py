@@ -21,6 +21,18 @@ def test_frontend_wallet_and_snapshot_contract_is_published():
         "balances_count",
         "top_assets",
     } <= set(wallet_summary["properties"])
+    wallet_detail = schema["components"]["schemas"]["WalletDetailSummary"]
+    assert "data_health" in wallet_detail["properties"]
+    wallet_health = schema["components"]["schemas"]["WalletDataHealth"]
+    assert {
+        "state",
+        "freshness",
+        "as_of",
+        "source",
+        "refresh_in_progress",
+        "chain_issues",
+        "price_quality",
+    } <= set(wallet_health["properties"])
 
 
 def test_release_metadata_is_part_of_openapi_info():
