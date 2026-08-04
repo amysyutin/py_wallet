@@ -1,0 +1,9 @@
+[run]
+source = app
+
+[report]
+show_missing = true
+precision = 0
+# Coverage ratchet: never lower this value; raise it when the CI total reaches
+# the next whole percentage point.
+fail_under = 74

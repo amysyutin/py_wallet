@@ -10,6 +10,11 @@ Deployment and platform changes are tracked separately in
 
 ## [Unreleased]
 
+### Added
+
+- Pin `pytest-cov` and enforce the current 74% statement-coverage baseline in
+  pull-request and main-branch CI, with a documented ratchet-up policy.
+
 ## [0.2.0] - 2026-07-22
 
 ### Added

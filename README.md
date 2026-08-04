@@ -465,11 +465,17 @@ Run the fast checks used by CI:
 ruff check .
 black --check .
 TEST_DATABASE_URL=postgresql+asyncpg://wallet:wallet@localhost:5432/wallet_test \
-  pytest -m "not slow and not e2e" -v --tb=short
+  pytest -m "not slow and not e2e" -v --tb=short \
+  --cov --cov-report=term-missing
 ```
 
 The test suite is designed to run without external network calls or real
 secrets. External APIs are mocked in tests.
+
+The CI test jobs enforce the statement-coverage baseline in `.coveragerc`.
+The threshold is a ratchet: never lower it, and raise it when the measured CI
+total reaches the next whole percentage point. Targeted local test runs can
+omit `--cov`; use the command above before opening a pull request.
 
 The API and snapshot-service intentionally share one PostgreSQL database but
 use separate Alembic version tables. Before the API becomes ready,
@@ -489,8 +495,8 @@ GitHub Actions contains two workflows:
 
 | Workflow | Trigger | Purpose |
 | --- | --- | --- |
-| `.github/workflows/ci.yml` | Pull request to `main` | Lint, format check, tests, security scans (Gitleaks, pip-audit, Bandit), JWT config checks, Docker Compose smoke test, and Telegram notification on failure. |
-| `.github/workflows/main-build.yml` | Push to `main` | Tests, security scans, immutable Docker image build, Compose smoke test, GHCR publish, GitOps image tag update, and Telegram notification. |
+| `.github/workflows/ci.yml` | Pull request to `main` | Lint, format check, coverage-gated tests, security scans (Gitleaks, pip-audit, Bandit), JWT config checks, Docker Compose smoke test, and Telegram notification on failure. |
+| `.github/workflows/main-build.yml` | Push to `main` | Coverage-gated tests, security scans, immutable Docker image build, Compose smoke test, GHCR publish, GitOps image tag update, and Telegram notification. |
 
 The main branch pipeline follows this flow:
 
