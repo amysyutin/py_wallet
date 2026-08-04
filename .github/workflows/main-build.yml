@@ -70,7 +70,9 @@ jobs:
         run: black --check .
 
       - name: Run tests
-        run: python -m pytest -m "not slow and not e2e" -v --tb=short
+        run: >-
+          python -m pytest -m "not slow and not e2e" -v --tb=short
+          --cov --cov-report=term-missing
 
       - name: Config security checks
         run: python scripts/check_config_security.py

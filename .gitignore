@@ -3,6 +3,7 @@ pip-audit-report.json
 bandit-report.json
 __pycache__/
 .pytest_cache/
+.coverage
 .vscode/
 .venv/
 .DS_Store
