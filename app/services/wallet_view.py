@@ -4,6 +4,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
+from typing import Literal
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,8 +41,27 @@ from app.schemas.wallet import (
 SNAPSHOT_READ_STATUSES = ("success", "partial_success")
 TOP_ASSETS_LIMIT = 5
 ACTIVE_SNAPSHOT_STATUSES = ("pending", "running")
-KNOWN_PRICE_SOURCES = frozenset({"coingecko", "manual", "static_dev"})
-PRICE_SOURCE_ORDER = ("coingecko", "manual", "static_dev", "unknown")
+BalanceSource = Literal["latest_snapshot", "manual", "none"]
+PriceSource = Literal["coingecko", "manual", "static_dev", "unknown"]
+PriceQualityState = Literal["complete", "estimated", "incomplete", "unknown"]
+WalletFreshness = Literal["fresh", "aging", "stale", "unknown"]
+WalletHealthState = Literal["fresh", "updating", "partial", "stale"]
+PRICE_SOURCE_ORDER: tuple[PriceSource, ...] = (
+    "coingecko",
+    "manual",
+    "static_dev",
+    "unknown",
+)
+
+
+def _normalize_price_source(source: str | None) -> PriceSource:
+    if source == "coingecko":
+        return "coingecko"
+    if source == "manual":
+        return "manual"
+    if source == "static_dev":
+        return "static_dev"
+    return "unknown"
 
 
 @dataclass
@@ -55,7 +75,7 @@ class _AssetAgg:
 @dataclass
 class _WalletBalanceInfo:
     balance_usd: Decimal = Decimal("0")
-    balance_source: str = "none"
+    balance_source: BalanceSource = "none"
     last_snapshot_at: datetime | None = None
     balances_count: int = 0
     top_assets: list[WalletTopAsset] = field(default_factory=list)
@@ -521,7 +541,7 @@ async def build_wallet_summaries(
                 group_name=groups.get(wallet.group_id) if wallet.group_id else None,
                 is_active=wallet.is_active,
                 balance_usd=info.balance_usd,
-                balance_source=info.balance_source,  # type: ignore[arg-type]
+                balance_source=info.balance_source,
                 last_snapshot_at=info.last_snapshot_at,
                 balances_count=info.balances_count,
                 top_assets=info.top_assets,
@@ -586,13 +606,12 @@ async def build_wallet_detail_summary(
         if amount != Decimal("0")
     ]
     price_sources = {
-        source if source in KNOWN_PRICE_SOURCES else "unknown"
-        for _, _, source in relevant_prices
+        _normalize_price_source(source) for _, _, source in relevant_prices
     }
     assets_priced = sum(price_usd is not None for _, price_usd, _ in relevant_prices)
     assets_total = len(relevant_prices)
     if assets_total == 0:
-        price_state = "unknown"
+        price_state: PriceQualityState = "unknown"
     elif assets_priced < assets_total:
         price_state = "incomplete"
     elif "static_dev" in price_sources:
@@ -631,7 +650,7 @@ async def build_wallet_detail_summary(
 
     as_of = info.last_snapshot_at
     if as_of is None:
-        freshness = "unknown"
+        freshness: WalletFreshness = "unknown"
     else:
         if as_of.tzinfo is None:
             as_of = as_of.replace(tzinfo=timezone.utc)
@@ -648,7 +667,7 @@ async def build_wallet_detail_summary(
             freshness = "stale"
 
     if chain_issues or price_quality.state in {"estimated", "incomplete"}:
-        health_state = "partial"
+        health_state: WalletHealthState = "partial"
     elif refresh_in_progress:
         health_state = "updating"
     elif info.balance_source == "none":
@@ -666,7 +685,7 @@ async def build_wallet_detail_summary(
             state=health_state,
             freshness=freshness,
             as_of=as_of,
-            source=info.balance_source,  # type: ignore[arg-type]
+            source=info.balance_source,
             refresh_in_progress=refresh_in_progress,
             chain_issues=chain_issues,
             price_quality=price_quality,

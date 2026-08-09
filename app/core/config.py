@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal, Self
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEV_JWT_SECRET = "dev-insecure-change-me"
@@ -154,7 +154,7 @@ class Settings(BaseSettings):
 
     @field_validator("app_version", "build_sha", mode="before")
     @classmethod
-    def normalize_release_metadata(cls, value: object, info) -> object:
+    def normalize_release_metadata(cls, value: object, info: ValidationInfo) -> object:
         if value is None or (isinstance(value, str) and not value.strip()):
             return "0.2.0" if info.field_name == "app_version" else "unknown"
         if isinstance(value, str):

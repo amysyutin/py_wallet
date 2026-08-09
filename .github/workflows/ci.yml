@@ -51,7 +51,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: "pip"
-          cache-dependency-path: "requirements.txt"
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
 
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
@@ -67,6 +69,9 @@ jobs:
 
       - name: Format check
         run: black --check .
+
+      - name: Type check
+        run: mypy
 
       - name: Validate API migration drift
         run: |

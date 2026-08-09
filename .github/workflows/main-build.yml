@@ -69,6 +69,9 @@ jobs:
       - name: Format check
         run: black --check .
 
+      - name: Type check
+        run: mypy
+
       - name: Run tests
         run: >-
           python -m pytest -m "not slow and not e2e" -v --tb=short
