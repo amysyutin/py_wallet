@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import cast
 
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
@@ -109,7 +110,8 @@ async def _get_or_create_asset(session: AsyncSession, item: BalanceItem) -> Asse
 
 async def create_snapshot_for_wallet(session: AsyncSession, wallet: Wallet) -> Snapshot:
     # блокирующий сбор балансов уводим в threadpool, чтобы не стопорить event loop
-    items = await run_in_threadpool(collect_evm_wallet_balances, wallet.address)
+    address = cast(str, wallet.address)
+    items = await run_in_threadpool(collect_evm_wallet_balances, address)
 
     snapshot = Snapshot(wallet_id=wallet.id, total_usd=Decimal("0"))
     session.add(snapshot)

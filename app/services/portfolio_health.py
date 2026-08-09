@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Protocol
+from typing import Literal, Protocol
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,15 +23,48 @@ from app.schemas.portfolio import (
 )
 
 ACTIVE_SNAPSHOT_STATUSES = ("pending", "running")
-KNOWN_PRICE_SOURCES = frozenset({"coingecko", "manual", "static_dev"})
-PRICE_SOURCE_ORDER = ("coingecko", "manual", "static_dev", "unknown")
+PriceSource = Literal["coingecko", "manual", "static_dev", "unknown"]
+PriceQualityState = Literal["complete", "estimated", "incomplete", "unknown"]
+PortfolioFreshness = Literal["fresh", "aging", "stale", "unknown"]
+PortfolioHealthState = Literal["fresh", "updating", "partial", "stale"]
+PRICE_SOURCE_ORDER: tuple[PriceSource, ...] = (
+    "coingecko",
+    "manual",
+    "static_dev",
+    "unknown",
+)
+
+
+def _normalize_price_source(source: str | None) -> PriceSource:
+    if source == "coingecko":
+        return "coingecko"
+    if source == "manual":
+        return "manual"
+    if source == "static_dev":
+        return "static_dev"
+    return "unknown"
+
+
+class PricedAssetInfo(Protocol):
+    @property
+    def amount(self) -> Decimal: ...
+
+    @property
+    def price_usd(self) -> Decimal | None: ...
 
 
 class WalletBalanceInfo(Protocol):
-    balance_source: str
-    last_snapshot_at: datetime | None
-    wallet_snapshot_id: int | None
-    assets: list
+    @property
+    def balance_source(self) -> str: ...
+
+    @property
+    def last_snapshot_at(self) -> datetime | None: ...
+
+    @property
+    def wallet_snapshot_id(self) -> int | None: ...
+
+    @property
+    def assets(self) -> Sequence[PricedAssetInfo]: ...
 
 
 async def active_canonical_wallets(
@@ -76,7 +110,7 @@ def portfolio_freshness(
     fresh_seconds: int,
     stale_seconds: int,
     now: datetime | None = None,
-) -> str:
+) -> PortfolioFreshness:
     if as_of is None:
         return "unknown"
     if as_of.tzinfo is None:
@@ -100,15 +134,12 @@ def portfolio_price_quality(
         for amount, price_usd, source in observations
         if amount != Decimal("0")
     ]
-    sources = {
-        source if source in KNOWN_PRICE_SOURCES else "unknown"
-        for _, _, source in relevant
-    }
+    sources = {_normalize_price_source(source) for _, _, source in relevant}
     assets_priced = sum(price_usd is not None for _, price_usd, _ in relevant)
     assets_total = len(relevant)
 
     if assets_total == 0:
-        quality_state = "unknown"
+        quality_state: PriceQualityState = "unknown"
     elif assets_priced < assets_total:
         quality_state = "incomplete"
     elif "static_dev" in sources:
@@ -131,14 +162,14 @@ async def build_portfolio_data_health(
     *,
     user_id: int,
     wallets: list[Wallet],
-    balance_info: dict[int, WalletBalanceInfo],
+    balance_info: Mapping[int, WalletBalanceInfo],
     now: datetime | None = None,
 ) -> PortfolioDataHealth:
     """Build one persisted portfolio-health contract for API and Telegram."""
     snapshot_dates = [
-        balance_info[wallet.id].last_snapshot_at
+        snapshot_at
         for wallet in wallets
-        if balance_info[wallet.id].last_snapshot_at is not None
+        if (snapshot_at := balance_info[wallet.id].last_snapshot_at) is not None
     ]
     # The oldest automated source is the honest timestamp for the whole total.
     as_of = min(snapshot_dates) if snapshot_dates else None
@@ -258,7 +289,7 @@ async def build_portfolio_data_health(
         now=now,
     )
     if chain_issues or price_quality.state in {"estimated", "incomplete"}:
-        health_state = "partial"
+        health_state: PortfolioHealthState = "partial"
     elif refresh_in_progress:
         health_state = "updating"
     elif missing_wallets:

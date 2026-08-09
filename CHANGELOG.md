@@ -12,6 +12,8 @@ Deployment and platform changes are tracked separately in
 
 ### Added
 
+- Add an incremental mypy gate for `app/core` and `app/services` to pull-request
+  and main-branch CI.
 - Pin `pytest-cov` and enforce the current 74% statement-coverage baseline in
   pull-request and main-branch CI, with a documented ratchet-up policy.
 

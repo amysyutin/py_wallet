@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from typing import cast
 
 import bcrypt
 import jwt
@@ -30,7 +31,7 @@ def verify_password_and_update(
     """Verify a password and return a replacement hash when migration is needed."""
     if password_hash.startswith("$argon2"):
         try:
-            valid = _PASSWORD_HASHER.verify(password_hash, password)
+            valid = bool(_PASSWORD_HASHER.verify(password_hash, password))
         except (VerificationError, InvalidHashError):
             return False, None
         replacement = (
@@ -54,17 +55,19 @@ def verify_password_and_update(
 
 def create_access_token(subject: str | int) -> str:
     settings = get_settings()
+    jwt_secret = cast(str, settings.jwt_secret)
     expire = datetime.now(timezone.utc) + timedelta(
         minutes=settings.access_token_ttl_min
     )
     payload = {"sub": str(subject), "exp": expire}
-    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_alg)
+    return jwt.encode(payload, jwt_secret, algorithm=settings.jwt_alg)
 
 
 def decode_access_token(token: str) -> str | None:
     settings = get_settings()
+    jwt_secret = cast(str, settings.jwt_secret)
     try:
-        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_alg])
+        payload = jwt.decode(token, jwt_secret, algorithms=[settings.jwt_alg])
     except jwt.InvalidTokenError:
         return None
     return payload.get("sub")
