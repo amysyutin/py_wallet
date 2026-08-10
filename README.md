@@ -482,6 +482,15 @@ Static typing is configured in `pyproject.toml`. The initial mypy gate covers
 `app/core` and `app/services`; expand `files` as neighboring packages are made
 type-clean instead of weakening the checks already enabled for this scope.
 
+Every pull request must add a user- or developer-facing bullet to the
+`[Unreleased]` section of `CHANGELOG.md`. PR CI compares the branch with its base
+commit and blocks the merge when the changelog is missing. To run the same check
+locally:
+
+```bash
+python scripts/check_changelog.py --base-ref origin/main
+```
+
 The API and snapshot-service intentionally share one PostgreSQL database but
 use separate Alembic version tables. Before the API becomes ready,
 snapshot-service must apply its own migrations so that `snapshot_runs`,
@@ -500,7 +509,7 @@ GitHub Actions contains two workflows:
 
 | Workflow | Trigger | Purpose |
 | --- | --- | --- |
-| `.github/workflows/ci.yml` | Pull request to `main` | Lint, format and mypy checks, coverage-gated tests, security scans (Gitleaks, pip-audit, Bandit), JWT config checks, Docker Compose smoke test, and Telegram notification on failure. |
+| `.github/workflows/ci.yml` | Pull request to `main` | Changelog, lint, format and mypy checks, coverage-gated tests, security scans (Gitleaks, pip-audit, Bandit), JWT config checks, Docker Compose smoke test, and Telegram notification on failure. |
 | `.github/workflows/main-build.yml` | Push to `main` | Mypy and coverage-gated tests, security scans, immutable Docker image build, Compose smoke test, GHCR publish, GitOps image tag update, and Telegram notification. |
 
 The main branch pipeline follows this flow:

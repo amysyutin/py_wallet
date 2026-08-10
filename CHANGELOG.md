@@ -12,10 +12,41 @@ Deployment and platform changes are tracked separately in
 
 ### Added
 
+- Add persisted portfolio and wallet data-health contracts with freshness,
+  coverage, chain-issue, and price-quality details.
+- Add snapshot-first wallet asset reads, scoped portfolio allocation, and a
+  coverage-aware 24-hour value change.
+- Add owner-safe portfolio refresh telemetry and retry for failed snapshot
+  chains without exposing wallet or user identifiers in metric labels.
+- Add first-snapshot activation progress and API safeguards for snapshot schema
+  readiness.
+- Add privacy-safe activation and Telegram digest metrics.
+- Add Telegram `/start` webhook responses, automatic webhook setup, and daily
+  digest health context consistent with the portfolio API.
+- Add API build metadata and reliable main-build fallback dispatch.
 - Add an incremental mypy gate for `app/core` and `app/services` to pull-request
   and main-branch CI.
 - Pin `pytest-cov` and enforce the current 74% statement-coverage baseline in
   pull-request and main-branch CI, with a documented ratchet-up policy.
+- Require every pull request to update this `[Unreleased]` section through a
+  dedicated CI policy check.
+
+### Changed
+
+- Aggregate each EVM wallet address across all enabled networks and canonicalize
+  duplicate legacy rows for portfolio reads.
+- Prefer persisted snapshot-service balances for wallet assets and expose the
+  same honest health state in wallet detail and Telegram digest responses.
+- Harden wallet data ownership, manual-balance validation, refresh scoping, and
+  snapshot-service readiness checks.
+
+### Fixed
+
+- Preserve historical portfolio points across wallet address revisions while
+  excluding pre-revision data from current value calculations.
+- Repair snapshot read-model schema validation and isolated Compose readiness.
+- Restore Telegram start responses and make webhook configuration resilient.
+- Restore reliable post-merge main builds and immutable release delivery.
 
 ## [0.2.0] - 2026-07-22
 
@@ -65,6 +96,6 @@ First public version of the crypto portfolio service.
 
 See [`docs/SECURITY_BACKLOG.md`](docs/SECURITY_BACKLOG.md) for the full hardening backlog.
 
-[Unreleased]: https://github.com/amysyutin/py_wallet/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/amysyutin/py_wallet/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/amysyutin/py_wallet/releases/tag/v0.1.0
+[Unreleased]: https://github.com/amysyutin/py_wallet-api/compare/20c0f7db92f3ccb9c19cf0a411359ab41ba5f236...HEAD
+[0.2.0]: https://github.com/amysyutin/py_wallet-api/compare/v0.1.0...20c0f7db92f3ccb9c19cf0a411359ab41ba5f236
+[0.1.0]: https://github.com/amysyutin/py_wallet-api/releases/tag/v0.1.0

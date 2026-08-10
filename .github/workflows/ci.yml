@@ -13,6 +13,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changelog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Require changelog entry
+        run: >-
+          python scripts/check_changelog.py
+          --base-ref "${{ github.event.pull_request.base.sha }}"
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -132,7 +147,7 @@ jobs:
   compose-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [test, security]
+    needs: [changelog, test, security]
 
     steps:
       - name: Checkout repository
@@ -202,7 +217,7 @@ jobs:
 
   notify:
     runs-on: ubuntu-latest
-    needs: [test, security, compose-smoke]
+    needs: [changelog, test, security, compose-smoke]
     if: failure()
     timeout-minutes: 2
 
