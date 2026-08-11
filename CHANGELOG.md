@@ -33,6 +33,8 @@ Deployment and platform changes are tracked separately in
 
 ### Changed
 
+- Stop tracking generated security reports and expand ignore rules for local
+  Python, coverage, editor, and operating-system artifacts.
 - Aggregate each EVM wallet address across all enabled networks and canonicalize
   duplicate legacy rows for portfolio reads.
 - Prefer persisted snapshot-service balances for wallet assets and expose the
