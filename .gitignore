@@ -1,10 +1,24 @@
+# Local configuration
 .env
-pip-audit-report.json
-bandit-report.json
+.venv/
+
+# Python caches and test output
 __pycache__/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Generated security reports
+pip-audit-report.json
+bandit-report.json
+*.sarif
+
+# Editors and operating systems
 .vscode/
-.venv/
+.idea/
 .DS_Store
-.ruff_cache
+Thumbs.db

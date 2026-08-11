@@ -383,6 +383,8 @@ parallel `security` job:
 
 CI uploads `security-reports` artifacts (`pip-audit-report.json`,
 `bandit-report.json`, 14-day retention) even when advisory steps report findings.
+These reports are generated artifacts and are intentionally ignored by Git; use
+the CI artifact or regenerate them locally instead of committing report output.
 
 **Run locally:**
 
