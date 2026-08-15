@@ -258,6 +258,8 @@ def _aware(value: datetime) -> datetime:
 
 
 def _wallet_source_status(data_health) -> str:
+    if data_health.wallets_total == 0:
+        return "unavailable"
     if data_health.state in {"updating", "partial"}:
         return data_health.state
     if data_health.freshness in {"aging", "stale"}:

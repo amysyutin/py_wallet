@@ -189,6 +189,7 @@ async def test_summary_includes_exchange_source_health_and_value(
     body = response.json()
     assert Decimal(body["total_usd"]) == Decimal("1050")
     assert body["top_assets"][0]["symbol"] == "BTC"
+    assert body["sources"][0]["status"] == "unavailable"
     assert body["sources"][1] == {
         "source": "exchange",
         "provider": "binance",
