@@ -211,3 +211,26 @@ def test_portfolio_health_thresholds_are_configurable():
     )
     assert settings.portfolio_fresh_seconds == 600
     assert settings.portfolio_stale_seconds == 1200
+
+
+def test_exchange_service_settings_are_bounded_and_disabled_by_default():
+    defaults = _settings(APP_ENV="test", JWT_SECRET=None)
+    configured = _settings(
+        APP_ENV="test",
+        JWT_SECRET=None,
+        exchange_service_url="http://exchange-service:8002",
+        exchange_internal_api_token="internal-token",
+        exchange_service_timeout_seconds=2.5,
+    )
+
+    assert defaults.exchange_internal_api_token == ""
+    assert configured.exchange_service_url == "http://exchange-service:8002"
+    assert configured.exchange_internal_api_token == "internal-token"
+    assert configured.exchange_service_timeout_seconds == 2.5
+
+    with pytest.raises(ValidationError):
+        _settings(
+            APP_ENV="test",
+            JWT_SECRET=None,
+            exchange_service_timeout_seconds=0,
+        )

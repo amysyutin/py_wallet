@@ -66,6 +66,19 @@ class PortfolioPriceQuality(BaseModel):
     assets_total: int
 
 
+class PortfolioExchangeHealth(BaseModel):
+    source: Literal["exchange"] = "exchange"
+    provider: Literal["binance"]
+    state: Literal["fresh", "partial", "stale", "unavailable"]
+    freshness: Literal["fresh", "aging", "stale", "unknown"]
+    as_of: datetime | None = None
+    assets_priced: int
+    assets_total: int
+    error_type: (
+        Literal["not_found", "timeout", "unavailable", "invalid_response"] | None
+    ) = None
+
+
 class PortfolioDataHealth(BaseModel):
     state: Literal["fresh", "updating", "partial", "stale"]
     freshness: Literal["fresh", "aging", "stale", "unknown"]
@@ -79,6 +92,16 @@ class PortfolioDataHealth(BaseModel):
     retryable_job_id: int | None = None
     chain_issues: list[PortfolioChainIssue]
     price_quality: PortfolioPriceQuality
+    exchange: PortfolioExchangeHealth | None = None
+
+
+class PortfolioSourceSummary(BaseModel):
+    source: Literal["wallet", "exchange"]
+    provider: Literal["binance"] | None = None
+    status: Literal["fresh", "aging", "updating", "partial", "stale", "unavailable"]
+    total_usd: Decimal
+    assets_count: int
+    as_of: datetime | None = None
 
 
 class PortfolioValueChange24h(BaseModel):
@@ -103,5 +126,6 @@ class PortfolioSummary(BaseModel):
     active_wallets_count: int
     last_snapshot_at: datetime | None = None
     top_assets: list[AssetShare]
+    sources: list[PortfolioSourceSummary]
     data_health: PortfolioDataHealth
     change_24h: PortfolioValueChange24h

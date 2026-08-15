@@ -58,6 +58,11 @@ def get_native_price_usd_cached(chain: str) -> float:
     cg_id = NATIVE_CG_ID.get(chain, "")
     if not cg_id:
         return 0.0
+    return get_coin_price_usd_cached(cg_id)
+
+
+def get_coin_price_usd_cached(cg_id: str) -> float:
+    """Return a cached CoinGecko price for a canonical coin identifier."""
     if cg_id == "ethereum":
         return get_eth_usd_price_cached()
     now = monotonic()

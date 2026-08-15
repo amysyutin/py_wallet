@@ -108,6 +108,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        hide_input_in_errors=True,
     )
 
     database_url: str = "postgresql+asyncpg://wallet:wallet@localhost:5432/wallet"
@@ -122,6 +123,9 @@ class Settings(BaseSettings):
     snapshot_service_url: str = "http://localhost:8001"
     snapshot_internal_api_token: str = ""
     snapshot_service_timeout_seconds: float = Field(default=5.0, gt=0)
+    exchange_service_url: str = "http://localhost:8002"
+    exchange_internal_api_token: str = ""
+    exchange_service_timeout_seconds: float = Field(default=5.0, gt=0)
     snapshot_schema_required: bool = True
     snapshot_auto_on_wallet_create: bool = True
     snapshot_scheduler_enabled: bool = True

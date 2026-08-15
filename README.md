@@ -105,7 +105,8 @@ Authenticated endpoints require `Authorization: Bearer <token>`:
 | `POST` | `/snapshot` | Create a snapshot for one active wallet or all active EVM wallets; EVM snapshots aggregate the wallet address across all supported EVM chains. |
 | `GET` | `/portfolio?wallet_id=<id>&days=30` | Return snapshot history for a wallet (`total_usd` from multi-chain EVM snapshots). |
 | `GET` | `/portfolio/history?group_id=<id>&days=30` | Return an aggregated group history; without `wallet_id` or `group_id`, aggregate all active wallets. |
-| `GET` | `/portfolio/summary` | Return total USD value and top assets from the latest wallet snapshots. |
+| `GET` | `/portfolio/allocation` | Return current allocation; `mode=all` includes exchange assets, while group selections remain wallet-only. |
+| `GET` | `/portfolio/summary` | Return total USD value, top assets, per-source totals, and wallet/exchange health from the latest snapshots. |
 
 New EVM wallets use `chain_type=all`: every snapshot checks the address across
 all EVM networks enabled in the snapshot service. Legacy per-network values
@@ -169,6 +170,18 @@ portfolio, distinguishes `latest_snapshot|manual|none`, reports an active
 wallet/group/portfolio refresh, and exposes only bounded chain status/error
 categories. Provider messages and endpoints are never returned. A frontend
 live check is diagnostic and must not replace this persisted total or history.
+
+When `EXCHANGE_INTERNAL_API_TOKEN` is configured, `/portfolio/summary` reads the
+current user's latest successful Binance snapshot from `py_wallet-exchange-service`.
+Supported symbols are valued through cached CoinGecko prices and appear under
+`source=exchange`; unsupported or temporarily unpriced symbols remain visible
+and make exchange health `partial`. Timeouts, missing snapshots, and invalid
+service responses do not fail the portfolio request: wallet totals remain
+available and exchange health becomes `unavailable` with a bounded error type.
+The all-scope allocation includes exchange assets with keys such as
+`exchange:binance:BTC`. Group selections and portfolio history remain
+wallet-only, so 24-hour change is reported unavailable while current exchange
+positions have no matching historical series.
 
 `POST /snapshot` uses the same multi-chain EVM scope for stored history, so
 `GET /portfolio?wallet_id=<id>&days=30` can power a chart of the wallet's
@@ -260,6 +273,9 @@ cp .env.example .env
 | `JWT_ALG` | No | JWT algorithm. Only `HS256` is allowed. Defaults to `HS256`. |
 | `ACCESS_TOKEN_TTL_MIN` | No | Access token lifetime in minutes. Defaults to `60`. |
 | `SNAPSHOT_SCHEMA_REQUIRED` | No | Require snapshot-service tables in `/health/ready`; defaults to `true`. It may be `false` only in development/test isolation and is rejected in staging/production. |
+| `EXCHANGE_SERVICE_URL` | No | Internal exchange-service URL; defaults to `http://localhost:8002`. |
+| `EXCHANGE_INTERNAL_API_TOKEN` | To enable exchange aggregation | Shared internal API token. When empty, exchange aggregation is disabled and does not degrade portfolio health. |
+| `EXCHANGE_SERVICE_TIMEOUT_SECONDS` | No | Timeout for the exchange-service read; defaults to `5`. |
 | `PORTFOLIO_FRESH_SECONDS` | No | Maximum age in seconds classified as fresh in the portfolio data-health contract; defaults to `900`. |
 | `PORTFOLIO_STALE_SECONDS` | No | Age in seconds after which portfolio snapshot data is stale; defaults to `1800` and must be greater than `PORTFOLIO_FRESH_SECONDS`. |
 | `EVM1_ADDRESS` | For default `/assets` address | Default EVM wallet address. |
