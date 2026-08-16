@@ -271,3 +271,21 @@ def test_get_native_price_raises_without_cached_value(mock_get):
 
     cg.NATIVE_PRICE_CACHE.pop("binancecoin", None)
     cg.NATIVE_PRICE_CACHE_UPDATED_AT.pop("binancecoin", None)
+
+
+@patch("app.connectors.price.coingecko.requests.get")
+def test_get_coin_price_supports_exchange_assets_and_cache(mock_get):
+    import app.connectors.price.coingecko as cg
+
+    cg.NATIVE_PRICE_CACHE.pop("bitcoin", None)
+    cg.NATIVE_PRICE_CACHE_UPDATED_AT.pop("bitcoin", None)
+    response = MagicMock()
+    response.json.return_value = {"bitcoin": {"usd": 120000.0}}
+    mock_get.return_value = response
+
+    assert cg.get_coin_price_usd_cached("bitcoin") == 120000.0
+    assert cg.get_coin_price_usd_cached("bitcoin") == 120000.0
+    assert mock_get.call_count == 1
+
+    cg.NATIVE_PRICE_CACHE.pop("bitcoin", None)
+    cg.NATIVE_PRICE_CACHE_UPDATED_AT.pop("bitcoin", None)

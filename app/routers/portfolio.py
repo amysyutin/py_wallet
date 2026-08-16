@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
+from starlette.concurrency import run_in_threadpool
 
 from app.db.models.asset import Asset
 from app.db.models.balance_snapshot import BalanceSnapshot
@@ -24,17 +25,24 @@ from app.schemas.portfolio import (
     PortfolioAllocationQuality,
     PortfolioAllScope,
     PortfolioChainIssue,
+    PortfolioExchangeHealth,
     PortfolioHistory,
     PortfolioPoint,
     PortfolioPriceQuality,
     PortfolioSelectionScope,
+    PortfolioSourceSummary,
     PortfolioSummary,
     PortfolioValueChange24h,
+)
+from app.services.exchange_portfolio import (
+    ExchangePortfolioSnapshot,
+    fetch_exchange_portfolio,
 )
 from app.services.wallet_view import build_wallet_balance_info
 from app.services.portfolio_health import (
     active_canonical_wallets as _active_canonical_wallets,
     build_portfolio_data_health,
+    portfolio_freshness,
     portfolio_price_quality as _portfolio_price_quality,
 )
 
@@ -87,6 +95,7 @@ async def _allocation_for_wallets(
     wallets: list[Wallet],
     *,
     scope: PortfolioAllScope | PortfolioSelectionScope,
+    exchange: ExchangePortfolioSnapshot | None = None,
 ) -> PortfolioAllocation:
     balance_info = await build_wallet_balance_info(session, wallets)
     asset_totals: dict[str, tuple[str, Decimal]] = {}
@@ -197,6 +206,17 @@ async def _allocation_for_wallets(
                 price_source="manual",
             )
 
+    if exchange is not None and exchange.status == "success":
+        for asset in exchange.assets:
+            add_asset(
+                key=f"exchange:{exchange.provider}:{asset.symbol}",
+                symbol=asset.symbol,
+                amount=asset.amount,
+                value_usd=asset.usd_value,
+                price_usd=asset.price_usd,
+                price_source="coingecko" if asset.price_usd is not None else "unknown",
+            )
+
     total = sum((value for _, value in asset_totals.values()), Decimal("0"))
     ordered = sorted(
         asset_totals.items(),
@@ -237,6 +257,103 @@ def _aware(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
+def _wallet_source_status(data_health) -> str:
+    if data_health.wallets_total == 0:
+        return "unavailable"
+    if data_health.state in {"updating", "partial"}:
+        return data_health.state
+    if data_health.freshness in {"aging", "stale"}:
+        return data_health.freshness
+    return "fresh"
+
+
+def _merge_exchange_health(
+    data_health,
+    exchange: ExchangePortfolioSnapshot,
+) -> PortfolioExchangeHealth | None:
+    if not exchange.configured:
+        return None
+    if exchange.status != "success":
+        data_health.state = "partial"
+        return PortfolioExchangeHealth(
+            provider=exchange.provider,
+            state="unavailable",
+            freshness="unknown",
+            assets_priced=0,
+            assets_total=0,
+            error_type=exchange.error_type,
+        )
+
+    settings = get_settings()
+    exchange_freshness = portfolio_freshness(
+        exchange.as_of,
+        fresh_seconds=settings.portfolio_fresh_seconds,
+        stale_seconds=settings.portfolio_stale_seconds,
+    )
+    exchange_assets_total = len(exchange.assets)
+    exchange_assets_priced = sum(
+        asset.price_usd is not None for asset in exchange.assets
+    )
+    exchange_state = (
+        "partial"
+        if exchange_assets_priced < exchange_assets_total
+        else ("stale" if exchange_freshness == "stale" else "fresh")
+    )
+
+    health_dates = [
+        date for date in (data_health.as_of, exchange.as_of) if date is not None
+    ]
+    data_health.as_of = min(health_dates) if health_dates else None
+    data_health.freshness = portfolio_freshness(
+        data_health.as_of,
+        fresh_seconds=settings.portfolio_fresh_seconds,
+        stale_seconds=settings.portfolio_stale_seconds,
+    )
+
+    quality = data_health.price_quality
+    existing_sources = set(quality.sources)
+    if exchange.assets:
+        if exchange_assets_priced:
+            existing_sources.add("coingecko")
+        if exchange_assets_priced < exchange_assets_total:
+            existing_sources.add("unknown")
+    quality.assets_priced += exchange_assets_priced
+    quality.assets_total += exchange_assets_total
+    quality.sources = [
+        source
+        for source in ("coingecko", "manual", "static_dev", "unknown")
+        if source in existing_sources
+    ]
+    if quality.assets_total == 0:
+        quality.state = "unknown"
+    elif quality.assets_priced < quality.assets_total:
+        quality.state = "incomplete"
+    elif "static_dev" in existing_sources:
+        quality.state = "estimated"
+    elif "unknown" in existing_sources:
+        quality.state = "unknown"
+    else:
+        quality.state = "complete"
+
+    if data_health.state == "partial" or exchange_state == "partial":
+        data_health.state = "partial"
+    elif data_health.refresh_in_progress:
+        data_health.state = "updating"
+    elif data_health.freshness == "stale":
+        data_health.state = "stale"
+    else:
+        data_health.state = "fresh"
+
+    return PortfolioExchangeHealth(
+        provider=exchange.provider,
+        state=exchange_state,
+        freshness=exchange_freshness,
+        as_of=exchange.as_of,
+        assets_priced=exchange_assets_priced,
+        assets_total=exchange_assets_total,
+    )
+
+
 async def _portfolio_change_24h(
     session: SessionDep,
     wallets: list[Wallet],
@@ -247,6 +364,7 @@ async def _portfolio_change_24h(
     health_state: str,
     freshness: str,
     chain_issues: list[PortfolioChainIssue],
+    has_exchange_assets: bool = False,
 ) -> PortfolioValueChange24h:
     reference_at = datetime.now(timezone.utc)
     cutoff_at = reference_at - timedelta(hours=24)
@@ -269,7 +387,7 @@ async def _portfolio_change_24h(
         return PortfolioValueChange24h(
             status=status_value,
             start_usd=start_usd,
-            end_usd=current_total if wallets else None,
+            end_usd=current_total if wallets or has_exchange_assets else None,
             absolute_usd=absolute,
             percent=percent,
             reference_at=reference_at,
@@ -281,6 +399,8 @@ async def _portfolio_change_24h(
             reason_codes=reasons,
         )
 
+    if has_exchange_assets:
+        return result("unavailable", ["current_source_has_no_historical_counterpart"])
     if not wallets:
         return result("unavailable", ["no_wallets"])
 
@@ -708,7 +828,19 @@ async def portfolio_allocation(
             group_ids=requested_group_ids,
             include_ungrouped=include_ungrouped,
         )
-    return await _allocation_for_wallets(session, wallets, scope=scope)
+    exchange = None
+    if mode == "all":
+        exchange = await run_in_threadpool(
+            fetch_exchange_portfolio,
+            get_settings(),
+            user_id=current_user.id,
+        )
+    return await _allocation_for_wallets(
+        session,
+        wallets,
+        scope=scope,
+        exchange=exchange,
+    )
 
 
 @router.get("/summary", response_model=PortfolioSummary)
@@ -721,10 +853,16 @@ async def portfolio_summary(
         user_id=current_user.id,
     )
     balance_info = await build_wallet_balance_info(session, wallets)
-    total = sum(
+    wallet_total = sum(
         (balance_info[wallet.id].balance_usd for wallet in wallets),
         Decimal("0"),
     )
+    exchange = await run_in_threadpool(
+        fetch_exchange_portfolio,
+        get_settings(),
+        user_id=current_user.id,
+    )
+    total = wallet_total + exchange.total_usd
 
     wallets_count = (
         await session.scalar(
@@ -748,10 +886,22 @@ async def portfolio_summary(
         wallets=wallets,
         balance_info=balance_info,
     )
+    wallet_source_status = _wallet_source_status(data_health)
+    wallet_as_of = data_health.as_of
+    data_health.exchange = _merge_exchange_health(data_health, exchange)
+    all_snapshot_dates = [*snapshot_dates]
+    if exchange.as_of is not None:
+        all_snapshot_dates.append(exchange.as_of)
+    last_snapshot_at = max(all_snapshot_dates) if all_snapshot_dates else None
 
     asset_totals: dict[str, Decimal] = {}
     for wallet in wallets:
         for asset in balance_info[wallet.id].assets:
+            asset_totals[asset.symbol] = (
+                asset_totals.get(asset.symbol, Decimal("0")) + asset.usd_value
+            )
+    if exchange.status == "success":
+        for asset in exchange.assets:
             asset_totals[asset.symbol] = (
                 asset_totals.get(asset.symbol, Decimal("0")) + asset.usd_value
             )
@@ -778,7 +928,44 @@ async def portfolio_summary(
         health_state=data_health.state,
         freshness=data_health.freshness,
         chain_issues=data_health.chain_issues,
+        has_exchange_assets=bool(exchange.assets),
     )
+
+    wallet_assets_count = sum(
+        asset.amount != Decimal("0")
+        for wallet in wallets
+        for asset in balance_info[wallet.id].assets
+    )
+    sources = [
+        PortfolioSourceSummary(
+            source="wallet",
+            status=wallet_source_status,
+            total_usd=wallet_total,
+            assets_count=wallet_assets_count,
+            as_of=wallet_as_of,
+        )
+    ]
+    if exchange.configured:
+        if exchange.status != "success":
+            exchange_status = "unavailable"
+        elif (
+            data_health.exchange is not None and data_health.exchange.state == "partial"
+        ):
+            exchange_status = "partial"
+        elif data_health.exchange is not None:
+            exchange_status = data_health.exchange.freshness
+        else:
+            exchange_status = "unavailable"
+        sources.append(
+            PortfolioSourceSummary(
+                source="exchange",
+                provider=exchange.provider,
+                status=exchange_status,
+                total_usd=exchange.total_usd,
+                assets_count=len(exchange.assets),
+                as_of=exchange.as_of,
+            )
+        )
 
     return PortfolioSummary(
         total_usd=total,
@@ -786,6 +973,7 @@ async def portfolio_summary(
         active_wallets_count=active_wallets_count,
         last_snapshot_at=last_snapshot_at,
         top_assets=top_assets,
+        sources=sources,
         data_health=data_health,
         change_24h=change_24h,
     )

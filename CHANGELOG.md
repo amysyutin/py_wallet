@@ -12,6 +12,8 @@ Deployment and platform changes are tracked separately in
 
 ### Added
 
+- Add user-scoped Binance balances to portfolio summary and all-scope allocation,
+  with explicit `exchange` source and health contracts.
 - Add persisted portfolio and wallet data-health contracts with freshness,
   coverage, chain-issue, and price-quality details.
 - Add snapshot-first wallet asset reads, scoped portfolio allocation, and a
@@ -44,6 +46,8 @@ Deployment and platform changes are tracked separately in
 
 ### Fixed
 
+- Keep validation errors from exposing configuration input values with current
+  Pydantic releases.
 - Preserve historical portfolio points across wallet address revisions while
   excluding pre-revision data from current value calculations.
 - Repair snapshot read-model schema validation and isolated Compose readiness.
