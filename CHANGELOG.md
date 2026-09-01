@@ -12,6 +12,8 @@ Deployment and platform changes are tracked separately in
 
 ### Added
 
+- Recognize Frankfurter fiat exchange rates as a complete live price source in
+  wallet and portfolio quality contracts.
 - Add user-scoped Binance balances to portfolio summary and all-scope allocation,
   with explicit `exchange` source and health contracts.
 - Add persisted portfolio and wallet data-health contracts with freshness,
