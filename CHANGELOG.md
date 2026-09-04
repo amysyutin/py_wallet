@@ -12,6 +12,8 @@ Deployment and platform changes are tracked separately in
 
 ### Added
 
+- Add persisted, user-scoped allocation targets with deterministic deviation and
+  rebalancing hints for the global portfolio.
 - Recognize Frankfurter fiat exchange rates as a complete live price source in
   wallet and portfolio quality contracts.
 - Add user-scoped Binance balances to portfolio summary and all-scope allocation,
