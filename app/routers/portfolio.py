@@ -181,7 +181,7 @@ def _build_rebalancing(
                 action=action,
             )
         )
-    items.sort(key=lambda item: abs(item.suggested_usd), reverse=True)
+    items.sort(key=lambda item: (-abs(item.suggested_usd), item.asset_key))
     return PortfolioRebalancing(
         status="ready" if quality.state == "complete" else "incomplete",
         tolerance_pct=REBALANCING_TOLERANCE_PCT,

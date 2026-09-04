@@ -69,6 +69,10 @@ async def test_allocation_targets_drive_rebalancing_hints(
     body = allocation.json()
     assert len(body["available_assets"]) == 2
     assert body["rebalancing"]["status"] == "ready"
+    assert [item["asset_key"] for item in body["rebalancing"]["items"]] == [
+        "manual:BTC",
+        "manual:ETH",
+    ]
     hints = {item["asset_key"]: item for item in body["rebalancing"]["items"]}
     assert hints["manual:BTC"]["action"] == "reduce"
     assert hints["manual:BTC"]["deviation_pct"] == 10.0
